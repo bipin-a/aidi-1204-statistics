@@ -1,122 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId, useRef } from "react";
+import { K } from "./components/Latex.jsx";
 
-import {
-  AreaChart,
-  Area,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  ReferenceLine,
-} from "recharts";
-
-/* ═══════════════════ MATH ═══════════════════ */
-const normalPDF = (x, mu = 0, sig = 1) =>
-  (1 / (sig * Math.sqrt(2 * Math.PI))) *
-  Math.exp(-0.5 * ((x - mu) / sig) ** 2);
-const erf = (x) => {
-  const a = [
-    0.254829592,
-    -0.284496736,
-    1.421413741,
-    -1.453152027,
-    1.061405429,
-  ];
-  const p = 0.3275911;
-
-  const s = x < 0 ? -1 : 1;
-  const ax = Math.abs(x);
-  const t = 1 / (1 + p * ax);
-
-  const y =
-    1 -
-    (((((a[4] * t + a[3]) * t + a[2]) * t + a[1]) * t + a[0]) * t) *
-      Math.exp(-ax * ax);
-  return s * y;
-};
-const normalCDF = (x) => 0.5 * (1 + erf(x / Math.SQRT2));
-const pFromZ = (z, tail = "two") => {
-  const left = normalCDF(z);
-  if (tail === "left") return left;
-  if (tail === "right") return 1 - left;
-  return 2 * Math.min(left, 1 - left);
-};
-function gamma(z) {
-  if (z < 0.5) return Math.PI / (Math.sin(Math.PI * z) * gamma(1 - z));
-
-  z -= 1;
-  const c = [
-    0.99999999999980993,
-    676.5203681218851,
-    -1259.1392167224028,
-    771.32342877765313,
-    -176.61502916214059,
-    12.507343278686905,
-    -0.13857109526572012,
-    9.9843695780195716e-6,
-    1.5056327351493116e-7,
-  ];
-
-  let x = c[0];
-  for (let i = 1; i < 9; i += 1) x += c[i] / (z + i);
-
-  const t = z + 7.5;
-  return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * x;
-}
-const tPDF = (x, df) =>
-  (gamma((df + 1) / 2) / (Math.sqrt(df * Math.PI) * gamma(df / 2))) *
-  Math.pow(1 + (x * x) / df, -(df + 1) / 2);
-const fPDF = (x, d1, d2) => {
-  if (x <= 0) return 0;
-
-  const num = Math.pow(d1 * x, d1) * Math.pow(d2, d2);
-  const den = Math.pow(d1 * x + d2, d1 + d2);
-  const beta = (gamma(d1 / 2) * gamma(d2 / 2)) / gamma((d1 + d2) / 2);
-  return (1 / (x * beta)) * Math.sqrt(num / den);
-};
-const gen = (fn, a, b, n = 200) => {
-  const s = (b - a) / n;
-  const r = [];
-
-  for (let x = a; x <= b; x += s) {
-    r.push({ x: Math.round(x * 100) / 100, y: fn(x) });
-  }
-
-  return r;
-};
-function tCDF(x, df) {
-  if (df > 200) return normalCDF(x);
-  if (x === 0) return 0.5;
-
-  const absX = Math.abs(x);
-  const N = 1200;
-  const h = absX / N;
-  let s = tPDF(0, df) + tPDF(absX, df);
-  for (let i = 1; i < N; i += 1) {
-    s += (i % 2 === 0 ? 2 : 4) * tPDF(i * h, df);
-  }
-
-  const area = (s * h) / 3;
-  const cdf = x > 0 ? 0.5 + area : 0.5 - area;
-  return Math.max(0, Math.min(1, cdf));
-}
-function fCDF(x, d1, d2) {
-  if (x <= 1e-6) return 0;
-
-  const N = 1200;
-  const lo = 1e-6;
-  const h = (x - lo) / N;
-  let s = fPDF(lo, d1, d2) + fPDF(x, d1, d2);
-  for (let i = 1; i < N; i += 1) {
-    s += (i % 2 === 0 ? 2 : 4) * fPDF(lo + i * h, d1, d2);
-  }
-
-  return Math.max(0, Math.min(1, (s * h) / 3));
-}
+import { normalCDF, pFromZ, tCDF, tCritical } from "./math.js";
 
 /* ═══════════════════ TOKENS ═══════════════════ */
 const C = {
@@ -276,6 +161,8 @@ const TypeTag = ({ children, bg = C.codeBg, color = C.sub }) => (
 
 const DD = ({ title, children, open: dOpen }) => {
   const [o, sO] = useState(dOpen || false);
+  const panelId = useId();
+  const buttonId = `${panelId}-button`;
 
   return (
     <div
@@ -288,7 +175,12 @@ const DD = ({ title, children, open: dOpen }) => {
       }}
     >
       <button
+        type="button"
+        id={buttonId}
         onClick={() => sO(!o)}
+        aria-expanded={o}
+        aria-controls={panelId}
+        className="tutorial-disclosure-button"
         style={{
           width: "100%",
           display: "flex",
@@ -324,13 +216,16 @@ const DD = ({ title, children, open: dOpen }) => {
         >
           {title}
         </span>
-        <span style={{ fontFamily: "var(--m)", fontSize: 10, color: C.muted }}>
+        <span style={{ fontFamily: "var(--m)", fontSize: 11, color: C.muted }}>
           {o ? "−" : "+"}
         </span>
       </button>
 
       {o && (
         <div
+          id={panelId}
+          role="region"
+          aria-labelledby={buttonId}
           style={{
             padding: "14px 18px",
             borderTop: `1px solid ${C.border}`,
@@ -348,6 +243,8 @@ const DD = ({ title, children, open: dOpen }) => {
 // Confusion drill-down (distinct styling)
 const Confusion = ({ title, children }) => {
   const [o, sO] = useState(false);
+  const panelId = useId();
+  const buttonId = `${panelId}-button`;
 
   return (
     <div
@@ -360,7 +257,12 @@ const Confusion = ({ title, children }) => {
       }}
     >
       <button
+        type="button"
+        id={buttonId}
         onClick={() => sO(!o)}
+        aria-expanded={o}
+        aria-controls={panelId}
+        className="tutorial-disclosure-button"
         style={{
           width: "100%",
           display: "flex",
@@ -385,13 +287,16 @@ const Confusion = ({ title, children }) => {
         >
           {title}
         </span>
-        <span style={{ fontFamily: "var(--m)", fontSize: 10, color: C.teal }}>
+        <span style={{ fontFamily: "var(--m)", fontSize: 11, color: C.teal }}>
           {o ? "−" : "+"}
         </span>
       </button>
 
       {o && (
         <div
+          id={panelId}
+          role="region"
+          aria-labelledby={buttonId}
           style={{
             padding: "14px 18px",
             borderTop: `1px dashed ${C.teal}`,
@@ -608,45 +513,138 @@ const CW = ({ title, children, cap }) => (
   </div>
 );
 
-const Sl = ({ label, value, min, max, step, onChange, color, display }) => (
-  <label style={{ display: "block", marginBottom: 8, fontSize: 13 }}>
-    <span style={{ color: C.sub }}>{label}: </span>
-    <strong style={{ color: color || C.accent, fontSize: 15 }}>{display || value}</strong>
-    <input
-      type="range"
-      min={min}
-      max={max}
-      step={step || 1}
-      value={value}
-      onChange={(e) => onChange(+e.target.value)}
-      style={{ display: "block", width: "100%", marginTop: 2, accentColor: color || C.accent }}
-    />
-  </label>
-);
+const Sl = ({ label, value, min, max, step, onChange, color, display }) => {
+  const inputId = useId();
+  const labelId = `${inputId}-label`;
+  const normalizedStep = step || 1;
+
+  const setValue = (next) => {
+    if (Number.isNaN(next)) return;
+    onChange(Math.min(max, Math.max(min, next)));
+  };
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: 6,
+        }}
+      >
+        <label id={labelId} htmlFor={inputId} style={{ color: C.sub, fontSize: 13 }}>
+          {label}
+        </label>
+        {display && (
+          <strong style={{ color: color || C.accent, fontSize: 15 }}>
+            {display}
+          </strong>
+        )}
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr) 110px",
+          gap: 10,
+          alignItems: "center",
+        }}
+      >
+        <input
+          id={inputId}
+          type="range"
+          min={min}
+          max={max}
+          step={normalizedStep}
+          value={value}
+          onChange={(e) => setValue(+e.target.value)}
+          aria-label={`${label} slider`}
+          style={{ width: "100%", marginTop: 2, accentColor: color || C.accent }}
+        />
+        <input
+          type="number"
+          min={min}
+          max={max}
+          step={normalizedStep}
+          value={value}
+          onChange={(e) => setValue(+e.target.value)}
+          aria-label={label}
+          style={{
+            width: "100%",
+            border: `1px solid ${C.border}`,
+            borderRadius: 8,
+            padding: "8px 10px",
+            fontSize: 13,
+            fontFamily: "var(--m)",
+            color: C.text,
+            background: C.card,
+          }}
+        />
+      </div>
+    </div>
+  );
+};
 
 const CR = ({ items, hl }) => (
-  <div
+  <table
     style={{
-      display: "grid",
-      gridTemplateColumns: `repeat(auto-fit,minmax(110px,1fr))`,
-      gap: 8,
+      width: "100%",
+      borderCollapse: "collapse",
       background: hl ? C.greenLt : C.codeBg,
       border: `1px solid ${hl ? C.green : C.border}`,
       borderRadius: 8,
-      padding: 12,
-      textAlign: "center",
+      overflow: "hidden",
       marginTop: 12,
     }}
   >
-    {items.map(([l, v, b], i) => (
-      <div key={i}>
-        <div style={{ fontFamily: "var(--m)", fontSize: 9.5, color: C.muted, textTransform: "uppercase" }}>{l}</div>
-        <div style={{ fontSize: b ? 18 : 15, fontWeight: b ? 700 : 600, color: b ? (hl ? C.green : C.accent) : C.text }}>
-          {v}
-        </div>
-      </div>
-    ))}
-  </div>
+    <caption
+      style={{
+        fontFamily: "var(--m)",
+        fontSize: 11,
+        textTransform: "uppercase",
+        letterSpacing: "0.08em",
+        color: hl ? C.green : C.muted,
+        padding: "10px 12px 6px",
+        captionSide: "top",
+      }}
+    >
+      Calculator Summary
+    </caption>
+    <tbody>
+      {items.map(([l, v, b], i) => (
+        <tr key={i} style={{ borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}>
+          <th
+            scope="row"
+            style={{
+              width: "40%",
+              textAlign: "left",
+              padding: "10px 12px",
+              fontFamily: "var(--m)",
+              fontSize: 11,
+              color: C.muted,
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              verticalAlign: "top",
+            }}
+          >
+            {l}
+          </th>
+          <td
+            style={{
+              padding: "10px 12px",
+              fontSize: b ? 17 : 15,
+              fontWeight: b ? 700 : 600,
+              color: b ? (hl ? C.green : C.accent) : C.text,
+            }}
+          >
+            {v}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
 );
 
 const Worked = ({ title, children }) => (
@@ -667,6 +665,24 @@ const Worked = ({ title, children }) => (
     </div>
     {title && <div style={{ fontFamily: "var(--h)", fontSize: 18, marginBottom: 10 }}>{title}</div>}
     {children}
+  </Card>
+);
+
+const Remember = ({ children }) => (
+  <Card a={C.green} bg={C.greenLt}>
+    <div
+      style={{
+        fontFamily: "var(--m)",
+        fontSize: 11,
+        color: C.green,
+        textTransform: "uppercase",
+        letterSpacing: "0.1em",
+        marginBottom: 8,
+      }}
+    >
+      Remember
+    </div>
+    <div style={{ lineHeight: 1.75 }}>{children}</div>
   </Card>
 );
 
@@ -691,361 +707,141 @@ const Danger = ({ title, children }) => (
   </Card>
 );
 
+const StandardErrorFigure = () => {
+  return (
+    <svg
+      viewBox="0 0 420 220"
+      aria-label="Annotated figure showing how standard error shrinks as sample size grows"
+      style={{ width: "100%", height: "auto", display: "block" }}
+    >
+      <rect x="0" y="0" width="420" height="220" rx="14" fill={C.codeBg} />
+      <line x1="42" y1="24" x2="42" y2="182" stroke={C.muted} strokeWidth="1.5" />
+      <line x1="42" y1="182" x2="392" y2="182" stroke={C.muted} strokeWidth="1.5" />
+      <text x="14" y="28" fill={C.sub} fontSize="11" fontFamily="var(--m)">
+        SE
+      </text>
+      <text x="338" y="205" fill={C.sub} fontSize="11" fontFamily="var(--m)">
+        sample size (n)
+      </text>
+      <path
+        d="M42 162 C86 118 126 92 176 74 C226 58 288 45 392 32"
+        fill="none"
+        stroke={C.accent}
+        strokeWidth="4"
+        strokeLinecap="round"
+      />
+      <line x1="132" y1="182" x2="132" y2="64" stroke={C.blue} strokeWidth="1.5" strokeDasharray="6 5" />
+      <line x1="292" y1="182" x2="292" y2="45" stroke={C.blue} strokeWidth="1.5" strokeDasharray="6 5" />
+      <circle cx="132" cy="104" r="5" fill={C.blue} />
+      <circle cx="292" cy="54" r="5" fill={C.blue} />
+      <text x="112" y="198" fill={C.blue} fontSize="11" fontFamily="var(--m)">
+        n = 100
+      </text>
+      <text x="270" y="198" fill={C.blue} fontSize="11" fontFamily="var(--m)">
+        n = 400
+      </text>
+      <rect x="150" y="18" width="136" height="44" rx="8" fill={C.card} stroke={C.border} />
+      <text x="164" y="38" fill={C.text} fontSize="12" fontFamily="var(--m)">
+        4× more data
+      </text>
+      <text x="164" y="54" fill={C.accent} fontSize="12" fontFamily="var(--m)" fontWeight="700">
+        ≈ half the SE
+      </text>
+      <text x="56" y="166" fill={C.muted} fontSize="11" fontFamily="var(--m)">
+        noisy estimate
+      </text>
+      <text x="298" y="60" fill={C.muted} fontSize="11" fontFamily="var(--m)">
+        tighter estimate
+      </text>
+    </svg>
+  );
+};
+
+const StandardNormalFigure = () => (
+  <svg
+    viewBox="0 0 420 220"
+    aria-label="Annotated standard normal curve showing critical values and tail areas"
+    style={{ width: "100%", height: "auto", display: "block" }}
+  >
+    <rect x="0" y="0" width="420" height="220" rx="14" fill={C.codeBg} />
+    <line x1="34" y1="176" x2="386" y2="176" stroke={C.muted} strokeWidth="1.5" />
+    <path
+      d="M34 176 C78 176 116 52 210 46 C304 52 342 176 386 176"
+      fill="none"
+      stroke={C.accent}
+      strokeWidth="4"
+      strokeLinecap="round"
+    />
+    <path d="M34 176 C66 176 92 144 108 114 L108 176 Z" fill={C.tealLt} stroke={C.teal} strokeWidth="1.5" />
+    <path d="M312 176 L312 114 C328 144 354 176 386 176 Z" fill={C.tealLt} stroke={C.teal} strokeWidth="1.5" />
+    <line x1="108" y1="176" x2="108" y2="92" stroke={C.purple} strokeWidth="1.5" strokeDasharray="6 5" />
+    <line x1="312" y1="176" x2="312" y2="92" stroke={C.purple} strokeWidth="1.5" strokeDasharray="6 5" />
+    <text x="92" y="194" fill={C.purple} fontSize="11" fontFamily="var(--m)">
+      −1.96
+    </text>
+    <text x="302" y="194" fill={C.purple} fontSize="11" fontFamily="var(--m)">
+      +1.96
+    </text>
+    <rect x="126" y="20" width="170" height="42" rx="8" fill={C.card} stroke={C.border} />
+    <text x="140" y="38" fill={C.text} fontSize="12" fontFamily="var(--m)">
+      z-score = location on the axis
+    </text>
+    <text x="140" y="54" fill={C.teal} fontSize="12" fontFamily="var(--m)" fontWeight="700">
+      p-value = shaded tail area
+    </text>
+    <text x="48" y="108" fill={C.teal} fontSize="11" fontFamily="var(--m)">
+      left tail
+    </text>
+    <text x="324" y="108" fill={C.teal} fontSize="11" fontFamily="var(--m)">
+      right tail
+    </text>
+  </svg>
+);
+
+const TvsZFigure = () => (
+  <svg
+    viewBox="0 0 420 220"
+    aria-label="Annotated comparison of the t-distribution and z-distribution with heavier tails at low df"
+    style={{ width: "100%", height: "auto", display: "block" }}
+  >
+    <rect x="0" y="0" width="420" height="220" rx="14" fill={C.codeBg} />
+    <line x1="34" y1="176" x2="386" y2="176" stroke={C.muted} strokeWidth="1.5" />
+    <path
+      d="M34 176 C78 176 116 54 210 46 C304 54 342 176 386 176"
+      fill="none"
+      stroke={C.accent}
+      strokeWidth="3.5"
+      strokeLinecap="round"
+    />
+    <path
+      d="M34 176 C74 170 122 102 210 88 C298 102 346 170 386 176"
+      fill="none"
+      stroke={C.blue}
+      strokeWidth="3.5"
+      strokeLinecap="round"
+    />
+    <line x1="92" y1="176" x2="92" y2="120" stroke={C.blue} strokeWidth="1.5" strokeDasharray="6 5" />
+    <line x1="328" y1="176" x2="328" y2="120" stroke={C.blue} strokeWidth="1.5" strokeDasharray="6 5" />
+    <rect x="214" y="20" width="150" height="50" rx="8" fill={C.card} stroke={C.border} />
+    <text x="228" y="40" fill={C.blue} fontSize="12" fontFamily="var(--m)" fontWeight="700">
+      low df = fatter tails
+    </text>
+    <text x="228" y="56" fill={C.text} fontSize="12" fontFamily="var(--m)">
+      stronger evidence needed
+    </text>
+    <rect x="44" y="22" width="132" height="48" rx="8" fill={C.card} stroke={C.border} />
+    <line x1="58" y1="38" x2="90" y2="38" stroke={C.accent} strokeWidth="3" />
+    <text x="98" y="42" fill={C.text} fontSize="12" fontFamily="var(--m)">
+      z-distribution
+    </text>
+    <line x1="58" y1="58" x2="90" y2="58" stroke={C.blue} strokeWidth="3" />
+    <text x="98" y="62" fill={C.text} fontSize="12" fontFamily="var(--m)">
+      t-distribution
+    </text>
+  </svg>
+);
+
 /* ═══════════════════ CALCULATORS ═══════════════════ */
-
-const SECalc = () => {
-  const [n, sN] = useState(16);
-  const sigma = 20;
-  const se = sigma / Math.sqrt(n);
-
-  const pop = gen((x) => normalPDF(x, 100, sigma), 20, 180, 250);
-  const samp = gen((x) => normalPDF(x, 100, se), 20, 180, 250);
-
-  return (
-    <div>
-      <Sl label="Sample size (n)" value={n} min={2} max={200} onChange={sN} />
-      <CR
-        items={[
-          ["σ", sigma],
-          ["√n", Math.sqrt(n).toFixed(2)],
-          ["SE = σ/√n", se.toFixed(2), true],
-        ]}
-      />
-
-      <ResponsiveContainer width="100%" height={230}>
-        <AreaChart margin={{ top: 8, right: 15, bottom: 35, left: 10 }}>
-          <defs>
-            <linearGradient id="sp" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={C.muted} stopOpacity={0.06} />
-              <stop offset="100%" stopColor={C.muted} stopOpacity={0} />
-            </linearGradient>
-            <linearGradient id="ss" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={C.accent} stopOpacity={0.18} />
-              <stop offset="100%" stopColor={C.accent} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-
-          <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-
-          <XAxis
-            dataKey="x"
-            type="number"
-            domain={[20, 180]}
-            tick={{ fontSize: 10, fill: C.muted }}
-            label={{
-              value: "Value",
-              position: "insideBottom",
-              offset: -8,
-              style: { fill: C.sub, fontSize: 12 },
-            }}
-          />
-
-          <YAxis
-            tick={{ fontSize: 10, fill: C.muted }}
-            width={35}
-            label={{
-              value: "Density",
-              angle: -90,
-              position: "insideLeft",
-              style: { fill: C.sub, fontSize: 12 },
-            }}
-          />
-
-          <Area
-            data={pop}
-            dataKey="y"
-            stroke={C.muted}
-            strokeWidth={1.5}
-            strokeDasharray="5 3"
-            fill="url(#sp)"
-            name="Individuals in the population"
-            dot={false}
-          />
-
-          <Area
-            data={samp}
-            dataKey="y"
-            stroke={C.accent}
-            strokeWidth={2.5}
-            fill="url(#ss)"
-            name={`Sample means (SE = ${se.toFixed(1)})`}
-            dot={false}
-          />
-
-          <ReferenceLine x={100} stroke={C.muted} strokeDasharray="3 3" />
-
-          <Legend wrapperStyle={{ fontSize: 11 }} />
-        </AreaChart>
-      </ResponsiveContainer>
-
-      <div style={{ fontSize: 12, color: C.sub, textAlign: "center", marginTop: 6 }}>
-        As <strong>n</strong> increases, the distribution of <strong>sample means</strong> gets narrower.
-      </div>
-
-      <div style={{ fontSize: 12, color: C.muted, textAlign: "center", marginTop: 4, lineHeight: 1.5 }}>
-        Gray shows the spread of individual observations. Orange shows the spread of sample means.
-      </div>
-    </div>
-  );
-};
-
-const DOFCalc = () => {
-  const [df, sD] = useState(4);
-
-  const zD = gen((x) => normalPDF(x), -5, 5);
-  const tD = gen((x) => tPDF(x, df), -5, 5);
-
-  return (
-    <div>
-      <Sl label="Degrees of freedom" value={df} min={1} max={60} onChange={sD} color={C.purple} />
-
-      <ResponsiveContainer width="100%" height={240}>
-        <AreaChart margin={{ top: 8, right: 15, bottom: 35, left: 10 }}>
-          <defs>
-            <linearGradient id="zt" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={C.blue} stopOpacity={0.08} />
-              <stop offset="100%" stopColor={C.blue} stopOpacity={0} />
-            </linearGradient>
-            <linearGradient id="tt" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={C.purple} stopOpacity={0.15} />
-              <stop offset="100%" stopColor={C.purple} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-
-          <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-
-          <XAxis
-            dataKey="x"
-            type="number"
-            domain={[-5, 5]}
-            ticks={[-4, -2, 0, 2, 4]}
-            tick={{ fontSize: 10, fill: C.muted }}
-            label={{
-              value: "t or z value",
-              position: "insideBottom",
-              offset: -8,
-              style: { fill: C.sub, fontSize: 12 },
-            }}
-          />
-
-          <YAxis
-            tick={{ fontSize: 10, fill: C.muted }}
-            width={35}
-            label={{
-              value: "Density",
-              angle: -90,
-              position: "insideLeft",
-              style: { fill: C.sub, fontSize: 12 },
-            }}
-          />
-
-          <Area
-            data={zD}
-            dataKey="y"
-            stroke={C.blue}
-            strokeWidth={2}
-            strokeDasharray="6 3"
-            fill="url(#zt)"
-            name="Standard normal (Z)"
-            dot={false}
-          />
-
-          <Area
-            data={tD}
-            dataKey="y"
-            stroke={C.purple}
-            strokeWidth={2.5}
-            fill="url(#tt)"
-            name={`t distribution (df = ${df})`}
-            dot={false}
-          />
-
-          <Legend wrapperStyle={{ fontSize: 11 }} />
-        </AreaChart>
-      </ResponsiveContainer>
-
-      <div style={{ fontSize: 12, color: C.sub, textAlign: "center", marginTop: 6 }}>
-        Lower <strong>df</strong> means fatter tails, so for a fixed alpha test, more extreme
-        values are needed to reject H0.
-      </div>
-
-      <div style={{ fontSize: 12, color: C.muted, textAlign: "center", marginTop: 4 }}>
-        {df <= 5
-          ? "Very fat tails — lots of uncertainty."
-          : df <= 15
-            ? "Noticeably wider than normal."
-            : df <= 30
-              ? "Almost identical to Z now."
-              : "Practically the same as Z."}
-      </div>
-    </div>
-  );
-};
-
-const TValueCalc = () => {
-  const [tObs, sTObs] = useState(2.1);
-  const [df, sDf] = useState(12);
-  const [tail, sTail] = useState("two");
-
-  const data = gen((x) => tPDF(x, df), -5, 5, 400);
-
-  const leftArea = tCDF(tObs, df);
-  const rightArea = 1 - leftArea;
-  const p = tail === "left" ? leftArea : tail === "right" ? rightArea : 2 * Math.min(leftArea, rightArea);
-
-  const shaded = data.map((d) => {
-    let area = 0;
-
-    if (tail === "left") {
-      area = d.x <= tObs ? d.y : 0;
-    } else if (tail === "right") {
-      area = d.x >= tObs ? d.y : 0;
-    } else {
-      area = Math.abs(d.x) >= Math.abs(tObs) ? d.y : 0;
-    }
-
-    return { ...d, area, curve: d.y };
-  });
-
-  const tailLabel = tail === "left" ? "Left-tailed" : tail === "right" ? "Right-tailed" : "Two-tailed";
-
-  return (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Sl
-          label="Observed t-score"
-          value={tObs}
-          min={-4}
-          max={4}
-          step={0.1}
-          onChange={sTObs}
-          color={C.purple}
-          display={tObs.toFixed(1)}
-        />
-
-        <Sl
-          label="Degrees of freedom"
-          value={df}
-          min={1}
-          max={60}
-          step={1}
-          onChange={sDf}
-          color={C.gold}
-        />
-      </div>
-
-      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-        {["left", "right", "two"].map((v) => (
-          <button
-            key={v}
-            onClick={() => sTail(v)}
-            style={{
-              padding: "5px 12px",
-              borderRadius: 6,
-              border: `2px solid ${tail === v ? C.purple : C.border}`,
-              background: tail === v ? C.purpleLt : "transparent",
-              cursor: "pointer",
-              fontSize: 11,
-              fontFamily: "var(--m)",
-              fontWeight: tail === v ? 700 : 400,
-            }}
-          >
-            {v === "left" ? "Left-tailed" : v === "right" ? "Right-tailed" : "Two-tailed"}
-          </button>
-        ))}
-      </div>
-
-      <ResponsiveContainer width="100%" height={250}>
-        <AreaChart data={shaded} margin={{ top: 10, right: 20, bottom: 35, left: 10 }}>
-          <defs>
-            <linearGradient id="tcurveFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={C.blue} stopOpacity={0.1} />
-              <stop offset="100%" stopColor={C.blue} stopOpacity={0} />
-            </linearGradient>
-            <linearGradient id="tareaFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={C.purple} stopOpacity={0.22} />
-              <stop offset="100%" stopColor={C.purple} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-
-          <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-
-          <XAxis
-            dataKey="x"
-            type="number"
-            domain={[-5, 5]}
-            ticks={[-4, -2, 0, 2, 4]}
-            tick={{ fontSize: 10, fill: C.muted }}
-            label={{
-              value: "t-score",
-              position: "insideBottom",
-              offset: -8,
-              style: { fill: C.sub, fontSize: 12 },
-            }}
-          />
-
-          <YAxis
-            tick={{ fontSize: 10, fill: C.muted }}
-            width={35}
-            label={{
-              value: "Density",
-              angle: -90,
-              position: "insideLeft",
-              style: { fill: C.sub, fontSize: 12 },
-            }}
-          />
-
-          <Area
-            dataKey="curve"
-            stroke={C.blue}
-            strokeWidth={1.8}
-            fill="url(#tcurveFill)"
-            name={`t distribution (df = ${df})`}
-            dot={false}
-          />
-
-          <Area
-            dataKey="area"
-            stroke={C.purple}
-            strokeWidth={1.8}
-            fill="url(#tareaFill)"
-            name="p-value area"
-            dot={false}
-          />
-
-          <ReferenceLine
-            x={tObs}
-            stroke={C.purple}
-            strokeDasharray="5 5"
-            label={{
-              value: `t = ${tObs.toFixed(1)}`,
-              position: "top",
-              fill: C.purple,
-              fontSize: 11,
-            }}
-          />
-
-          {tail === "two" && <ReferenceLine x={-tObs} stroke={C.purple} strokeDasharray="5 5" />}
-        </AreaChart>
-      </ResponsiveContainer>
-
-      <CR
-        items={[
-          ["Tail", tailLabel],
-          ["df", df],
-          ["Observed t", <><span>{tObs.toFixed(1)}</span><TypeTag bg={C.purpleLt} color={C.purple}>distance</TypeTag></>, true],
-          ["p-value", <><span>{p < 0.001 ? "<0.001" : p.toFixed(4)}</span><TypeTag bg={C.tealLt} color={C.teal}>area</TypeTag></>, true],
-          ["Decision", p < 0.05 ? "Reject H0" : "Fail to reject", true],
-        ]}
-        hl={p < 0.05}
-      />
-
-      <div style={{ fontSize: 12, color: C.sub, textAlign: "center", marginTop: 6 }}>
-        Purple shaded area = the p-value for the observed t-score.
-      </div>
-    </div>
-  );
-};
 
 const ZTestCalc = () => {
   const [xbar, sX] = useState(23);
@@ -1053,7 +849,6 @@ const ZTestCalc = () => {
   const [sigma, sS] = useState(8);
   const [n, sN] = useState(50);
   const [tail, sT] = useState("two");
-  const [view, sV] = useState("p");
 
   const se = sigma / Math.sqrt(n);
   const z = se > 0 ? (xbar - mu0) / se : 0;
@@ -1062,55 +857,28 @@ const ZTestCalc = () => {
   const p = tail === "left" ? leftArea : tail === "right" ? rightArea : 2 * Math.min(leftArea, rightArea);
   const sig = p < 0.05;
 
-  const data = gen((x) => normalPDF(x), -4, 4, 350);
-  const isReject = (x) =>
-    tail === "two" ? x < -1.96 || x > 1.96 : tail === "right" ? x > 1.645 : x < -1.645;
-
-  const chartData = data.map((d) => {
-    let pArea = 0;
-    if (tail === "left") {
-      pArea = d.x <= z ? d.y : 0;
-    } else if (tail === "right") {
-      pArea = d.x >= z ? d.y : 0;
-    } else {
-      pArea = Math.abs(d.x) >= Math.abs(z) ? d.y : 0;
-    }
-
-    return {
-      ...d,
-      keep: !isReject(d.x) ? d.y : 0,
-      reject: isReject(d.x) ? d.y : 0,
-      pArea,
-    };
-  });
-
   const critText = tail === "two" ? "±1.96" : tail === "right" ? "1.645" : "-1.645";
   const tailLabel = tail === "left" ? "Left-tailed" : tail === "right" ? "Right-tailed" : "Two-tailed";
-  const xTicks =
-    tail === "two"
-      ? [-3, -1.96, 0, 1.96, 3]
-      : tail === "right"
-        ? [-3, 0, 1.645, 3]
-        : [-3, -1.645, 0, 3];
-  const zAbs = Math.abs(z);
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <Sl label="Sample mean Xbar" value={xbar} min={0} max={100} onChange={sX} color={C.blue} />
+      <div className="responsive-grid-2" style={{ gap: 8 }}>
+        <Sl label="Sample mean (x̄)" value={xbar} min={0} max={100} onChange={sX} color={C.blue} />
 
-        <Sl label="Hypothesized mu0" value={mu0} min={0} max={100} onChange={sM} color={C.purple} />
+        <Sl label="Hypothesized mean (μ₀)" value={mu0} min={0} max={100} onChange={sM} color={C.purple} />
 
-        <Sl label="Population sigma" value={sigma} min={1} max={30} onChange={sS} color={C.green} />
+        <Sl label="Population standard deviation (σ)" value={sigma} min={1} max={30} onChange={sS} color={C.green} />
 
-        <Sl label="Sample size n" value={n} min={5} max={200} onChange={sN} color={C.gold} />
+        <Sl label="Sample size (n)" value={n} min={5} max={200} onChange={sN} color={C.gold} />
       </div>
 
       <div style={{ display: "flex", gap: 6, margin: "10px 0 8px", flexWrap: "wrap" }}>
         {["left", "right", "two"].map((v) => (
           <button
             key={v}
+            type="button"
             onClick={() => sT(v)}
+            aria-pressed={tail === v}
             style={{
               padding: "5px 12px",
               borderRadius: 6,
@@ -1127,145 +895,6 @@ const ZTestCalc = () => {
         ))}
       </div>
 
-      <div style={{ display: "flex", gap: 6, margin: "0 0 10px", flexWrap: "wrap" }}>
-        {[
-          ["p", "Observed p-value"],
-          ["critical", "Critical region"],
-          ["both", "Show both"],
-        ].map(([v, label]) => (
-          <button
-            key={v}
-            onClick={() => sV(v)}
-            style={{
-              padding: "5px 12px",
-              borderRadius: 6,
-              border: `2px solid ${view === v ? C.purple : C.border}`,
-              background: view === v ? C.purpleLt : "transparent",
-              cursor: "pointer",
-              fontSize: 11,
-              fontFamily: "var(--m)",
-              fontWeight: view === v ? 700 : 400,
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <ResponsiveContainer width="100%" height={260}>
-        <AreaChart data={chartData} margin={{ top: 10, right: 20, bottom: 35, left: 10 }}>
-          <defs>
-            <linearGradient id="zAlphaFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={C.accent} stopOpacity={0.16} />
-              <stop offset="100%" stopColor={C.accent} stopOpacity={0} />
-            </linearGradient>
-            <linearGradient id="zPAreaFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={C.purple} stopOpacity={0.22} />
-              <stop offset="100%" stopColor={C.purple} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-
-          <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-
-          <XAxis
-            dataKey="x"
-            type="number"
-            domain={[-4, 4]}
-            ticks={xTicks}
-            tick={{ fontSize: 10, fill: C.muted }}
-            label={{
-              value: "Z-score",
-              position: "insideBottom",
-              offset: -8,
-              style: { fill: C.sub, fontSize: 12 },
-            }}
-          />
-
-          <YAxis
-            tick={{ fontSize: 10, fill: C.muted }}
-            width={35}
-            label={{
-              value: "Density",
-              angle: -90,
-              position: "insideLeft",
-              style: { fill: C.sub, fontSize: 12 },
-            }}
-          />
-
-          <Area
-            dataKey="y"
-            stroke={C.blue}
-            strokeWidth={1.8}
-            fill="none"
-            name="Normal curve"
-            dot={false}
-          />
-
-          {(view === "critical" || view === "both") && (
-            <>
-              <Area
-                dataKey="keep"
-                stroke={C.blue}
-                strokeWidth={1.4}
-                fill={C.blueLt}
-                name="Non-rejection region"
-                dot={false}
-              />
-              <Area
-                dataKey="reject"
-                stroke={C.accent}
-                strokeWidth={1.4}
-                fill="url(#zAlphaFill)"
-                name="Critical region (alpha)"
-                dot={false}
-              />
-            </>
-          )}
-
-          {(view === "p" || view === "both") && (
-            <Area
-              dataKey="pArea"
-              stroke={C.purple}
-              strokeWidth={1.8}
-              fill="url(#zPAreaFill)"
-              name="p-value area"
-              dot={false}
-            />
-          )}
-
-          {(view === "critical" || view === "both") && tail === "two" && (
-            <>
-              <ReferenceLine x={-1.96} stroke={C.accent} strokeDasharray="5 5" />
-              <ReferenceLine x={1.96} stroke={C.accent} strokeDasharray="5 5" />
-            </>
-          )}
-
-          {(view === "critical" || view === "both") && tail === "right" && (
-            <ReferenceLine x={1.645} stroke={C.accent} strokeDasharray="5 5" />
-          )}
-          {(view === "critical" || view === "both") && tail === "left" && (
-            <ReferenceLine x={-1.645} stroke={C.accent} strokeDasharray="5 5" />
-          )}
-
-          <ReferenceLine
-            x={z}
-            stroke={C.purple}
-            strokeDasharray="5 5"
-            label={{ value: `z = ${z.toFixed(2)}`, position: "top", fill: C.purple, fontSize: 11 }}
-          />
-
-          {(view === "p" || view === "both") && tail === "two" && (
-            <ReferenceLine x={-zAbs} stroke={C.purple} strokeDasharray="5 5" />
-          )}
-        </AreaChart>
-      </ResponsiveContainer>
-
-      <div style={{ fontSize: 12, color: C.sub, textAlign: "center", marginTop: 6 }}>
-        {view === "p" && "Purple area = the p-value for your observed z-score."}
-        {view === "critical" && "Orange area = the rejection region at alpha = 0.05."}
-        {view === "both" && "Purple shows the observed p-value. Orange shows the alpha cutoff region."}
-      </div>
-
       <CR
         items={[
           ["Tail", tailLabel],
@@ -1273,7 +902,7 @@ const ZTestCalc = () => {
           ["Observed z", <><span>{z.toFixed(3)}</span><TypeTag bg={C.purpleLt} color={C.purple}>distance</TypeTag></>, true],
           ["p-value", <><span>{p < 0.001 ? "<0.001" : p.toFixed(4)}</span><TypeTag bg={C.tealLt} color={C.teal}>area</TypeTag></>, true],
           ["alpha", <><span>0.05</span><TypeTag bg={C.accentLt} color={C.accent}>area threshold</TypeTag></>],
-          ["Critical z", critText],
+          ["Critical value", critText],
           ["Decision", sig ? "Reject H0" : "Fail to reject", true],
         ]}
         hl={sig}
@@ -1302,22 +931,34 @@ const ABCalc = () => {
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div className="responsive-grid-2" style={{ gap: 12 }}>
         <div style={{ background: C.blueLt, borderRadius: 8, padding: 12 }}>
-          <div style={{ fontFamily: "var(--m)", fontSize: 10, color: C.blue, marginBottom: 6 }}>CONTROL (A)</div>
-          <Sl label="Visitors" value={nA} min={50} max={5000} step={50} onChange={(v) => { sNA(v); sCA(Math.min(cA, v)); }} color={C.blue} />
+          <div style={{ fontFamily: "var(--m)", fontSize: 11, color: C.blue, marginBottom: 6 }}>CONTROL (A)</div>
+          <Sl label="Control visitors (nA)" value={nA} min={50} max={5000} step={50} onChange={(v) => { sNA(v); sCA(Math.min(cA, v)); }} color={C.blue} />
 
-          <Sl label="Conversions" value={cA} min={0} max={nA} onChange={sCA} color={C.blue} display={`${cA} (${(pA * 100).toFixed(1)}%)`} />
+          <Sl label="Control conversions (xA)" value={cA} min={0} max={nA} onChange={sCA} color={C.blue} display={`${cA} (${(pA * 100).toFixed(1)}%)`} />
         </div>
 
         <div style={{ background: C.accentLt, borderRadius: 8, padding: 12 }}>
-          <div style={{ fontFamily: "var(--m)", fontSize: 10, color: C.accent, marginBottom: 6 }}>VARIANT (B)</div>
-          <Sl label="Visitors" value={nB} min={50} max={5000} step={50} onChange={(v) => { sNB(v); sCB(Math.min(cB, v)); }} color={C.accent} />
+          <div style={{ fontFamily: "var(--m)", fontSize: 11, color: C.accent, marginBottom: 6 }}>VARIANT (B)</div>
+          <Sl label="Variant visitors (nB)" value={nB} min={50} max={5000} step={50} onChange={(v) => { sNB(v); sCB(Math.min(cB, v)); }} color={C.accent} />
 
-          <Sl label="Conversions" value={cB} min={0} max={nB} onChange={sCB} color={C.accent} display={`${cB} (${(pB * 100).toFixed(1)}%)`} />
+          <Sl label="Variant conversions (xB)" value={cB} min={0} max={nB} onChange={sCB} color={C.accent} display={`${cB} (${(pB * 100).toFixed(1)}%)`} />
         </div>
       </div>
-      <CR items={[["Pooled p", pool.toFixed(4)], ["SE", se.toFixed(4)], ["Z", z.toFixed(3), true], ["p-value", p.toFixed(4), true], ["Verdict", sig ? "Significant" : "Not sig.", true]]} hl={sig} />
+      <div style={{ fontFamily: "var(--m)", fontSize: 11, color: C.muted, marginTop: 12 }}>
+        Two-sided test
+      </div>
+      <CR
+        items={[
+          ["Pooled proportion", pool.toFixed(4)],
+          ["SE", se.toFixed(4)],
+          ["z-score", z.toFixed(3), true],
+          ["p-value", p.toFixed(4), true],
+          ["Decision", sig ? "Significant" : "Not significant", true],
+        ]}
+        hl={sig}
+      />
     </div>
   );
 };
@@ -1332,17 +973,31 @@ const OneTCalc = () => {
   const t = se > 0 ? (xbar - mu0) / se : 0;
   const df = n - 1;
   const pV = 2 * (1 - tCDF(Math.abs(t), df));
+  const crit = tCritical(df);
   const sig = pV < 0.05;
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <Sl label="Sample mean Xbar" value={xbar} min={50} max={150} onChange={sX} color={C.blue} />
-        <Sl label="Hypothesized mu0" value={mu0} min={50} max={150} onChange={sM} color={C.purple} />
-        <Sl label="Sample SD (s)" value={s} min={1} max={40} onChange={sS} color={C.green} />
-        <Sl label="Sample size n" value={n} min={3} max={100} onChange={sN} color={C.gold} />
+      <div className="responsive-grid-2" style={{ gap: 8 }}>
+        <Sl label="Sample mean (x̄)" value={xbar} min={50} max={150} onChange={sX} color={C.blue} />
+        <Sl label="Hypothesized mean (μ₀)" value={mu0} min={50} max={150} onChange={sM} color={C.purple} />
+        <Sl label="Sample standard deviation (s)" value={s} min={1} max={40} onChange={sS} color={C.green} />
+        <Sl label="Sample size (n)" value={n} min={3} max={100} onChange={sN} color={C.gold} />
       </div>
-      <CR items={[["SE", se.toFixed(3)], ["df", df], ["t", t.toFixed(3), true], ["p-value", pV < 0.001 ? "<0.001" : pV.toFixed(4), true], ["Result", sig ? "Reject H0" : "Fail to reject", true]]} hl={sig} />
+      <div style={{ fontFamily: "var(--m)", fontSize: 11, color: C.muted, marginTop: 12 }}>
+        Two-sided test
+      </div>
+      <CR
+        items={[
+          ["SE", se.toFixed(3)],
+          ["df", df],
+          ["t-statistic", t.toFixed(3), true],
+          ["p-value", pV < 0.001 ? "<0.001" : pV.toFixed(4), true],
+          ["Critical value", `±${crit.toFixed(3)}`],
+          ["Decision", sig ? "Reject H0" : "Fail to reject", true],
+        ]}
+        hl={sig}
+      />
     </div>
   );
 };
@@ -1365,29 +1020,47 @@ const TwoTCalc = () => {
   const df = Math.round(dfExact);
 
   const pV = 2 * (1 - tCDF(Math.abs(t), dfExact));
+  const crit = tCritical(dfExact);
   const sig = pV < 0.05;
   const cd = Math.abs(x1 - x2) / Math.sqrt((s1 * s1 + s2 * s2) / 2);
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div className="responsive-grid-2" style={{ gap: 12 }}>
         <div style={{ background: C.blueLt, borderRadius: 8, padding: 12 }}>
-          <div style={{ fontFamily: "var(--m)", fontSize: 10, color: C.blue }}>GROUP 1</div>
+          <div style={{ fontFamily: "var(--m)", fontSize: 11, color: C.blue }}>GROUP 1</div>
 
-          <Sl label="Mean" value={x1} min={40} max={120} onChange={sX1} color={C.blue} />
-          <Sl label="SD" value={s1} min={1} max={30} onChange={sS1} color={C.blue} />
-          <Sl label="n" value={n1} min={3} max={100} onChange={sN1} color={C.blue} />
+          <Sl label="Group 1 mean (x̄₁)" value={x1} min={40} max={120} onChange={sX1} color={C.blue} />
+          <Sl label="Group 1 standard deviation (s₁)" value={s1} min={1} max={30} onChange={sS1} color={C.blue} />
+          <Sl label="Group 1 sample size (n₁)" value={n1} min={3} max={100} onChange={sN1} color={C.blue} />
         </div>
 
         <div style={{ background: C.accentLt, borderRadius: 8, padding: 12 }}>
-          <div style={{ fontFamily: "var(--m)", fontSize: 10, color: C.accent }}>GROUP 2</div>
+          <div style={{ fontFamily: "var(--m)", fontSize: 11, color: C.accent }}>GROUP 2</div>
 
-          <Sl label="Mean" value={x2} min={40} max={120} onChange={sX2} color={C.accent} />
-          <Sl label="SD" value={s2} min={1} max={30} onChange={sS2} color={C.accent} />
-          <Sl label="n" value={n2} min={3} max={100} onChange={sN2} color={C.accent} />
+          <Sl label="Group 2 mean (x̄₂)" value={x2} min={40} max={120} onChange={sX2} color={C.accent} />
+          <Sl label="Group 2 standard deviation (s₂)" value={s2} min={1} max={30} onChange={sS2} color={C.accent} />
+          <Sl label="Group 2 sample size (n₂)" value={n2} min={3} max={100} onChange={sN2} color={C.accent} />
         </div>
       </div>
-      <CR items={[["SE", se.toFixed(3)], ["df", df], ["t", t.toFixed(3), true], ["p-value", pV < 0.001 ? "<0.001" : pV.toFixed(4), true], ["Cohen's d", cd.toFixed(2)], ["Result", sig ? "Reject H0" : "Fail to reject", true]]} hl={sig} />
+      <div style={{ fontFamily: "var(--m)", fontSize: 11, color: C.muted, marginTop: 12 }}>
+        Two-sided test
+      </div>
+      <CR
+        items={[
+          ["SE", se.toFixed(3)],
+          ["df", df],
+          ["t-statistic", t.toFixed(3), true],
+          ["p-value", pV < 0.001 ? "<0.001" : pV.toFixed(4), true],
+          ["Critical value", `±${crit.toFixed(3)}`],
+          ["Cohen's d (avg. variance)", cd.toFixed(2)],
+          ["Decision", sig ? "Reject H0" : "Fail to reject", true],
+        ]}
+        hl={sig}
+      />
+      <div style={{ fontSize: 12, color: C.muted, textAlign: "center", marginTop: 6 }}>
+        Textbooks often use a pooled-SD version of Cohen&apos;s d. This calculator shows the average-variance version.
+      </div>
     </div>
   );
 };
@@ -1401,161 +1074,47 @@ const PairedTCalc = () => {
   const t = se > 0 ? dbar / se : 0;
   const df = n - 1;
   const pV = 2 * (1 - tCDF(Math.abs(t), df));
+  const crit = tCritical(df);
   const sig = pV < 0.05;
 
   return (
     <div>
-      <Sl label="Mean difference (dbar)" value={dbar} min={-10} max={10} step={0.1} onChange={sD} color={C.blue} display={dbar.toFixed(1)} />
+      <Sl label="Mean difference (d̄)" value={dbar} min={-10} max={10} step={0.1} onChange={sD} color={C.blue} display={dbar.toFixed(1)} />
 
-      <Sl label="SD of differences" value={sd} min={0.1} max={15} step={0.1} onChange={sSd} color={C.purple} display={sd.toFixed(1)} />
+      <Sl label="Standard deviation of differences (s_d)" value={sd} min={0.1} max={15} step={0.1} onChange={sSd} color={C.purple} display={sd.toFixed(1)} />
 
-      <Sl label="Number of pairs" value={n} min={3} max={50} onChange={sN} color={C.green} />
+      <Sl label="Number of pairs (n)" value={n} min={3} max={50} onChange={sN} color={C.green} />
 
-      <CR items={[["SE", se.toFixed(3)], ["df", df], ["t", t.toFixed(3), true], ["p-value", pV < 0.001 ? "<0.001" : pV.toFixed(4), true], ["Result", sig ? "Reject H0" : "Fail to reject", true]]} hl={sig} />
-    </div>
-  );
-};
-
-const FCalc = () => {
-  const [d1, sD1] = useState(3);
-  const [d2, sD2] = useState(15);
-
-  const data = gen((x) => fPDF(x, d1, d2), 0.01, 5.5, 200);
-
-  return (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <Sl label="df1 (numerator)" value={d1} min={1} max={20} onChange={sD1} />
-        <Sl label="df2 (denominator)" value={d2} min={2} max={50} onChange={sD2} color={C.gold} />
+      <div style={{ fontFamily: "var(--m)", fontSize: 11, color: C.muted, marginTop: 12 }}>
+        Two-sided test
       </div>
-      <ResponsiveContainer width="100%" height={200}>
-        <AreaChart data={data} margin={{ top: 5, right: 15, bottom: 15, left: 5 }}>
-          <defs>
-            <linearGradient id="ff" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={C.accent} stopOpacity={0.18} />
-              <stop offset="100%" stopColor={C.accent} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-
-          <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-          <XAxis dataKey="x" type="number" domain={[0, 5.5]} tick={{ fontSize: 10, fill: C.muted }} />
-          <YAxis tick={{ fontSize: 10, fill: C.muted }} width={30} />
-
-          <Area dataKey="y" stroke={C.accent} strokeWidth={2.5} fill="url(#ff)" name={`F(${d1},${d2})`} dot={false} />
-
-          <ReferenceLine x={1} stroke={C.muted} strokeDasharray="5 5" />
-          <Legend wrapperStyle={{ fontSize: 11 }} />
-        </AreaChart>
-      </ResponsiveContainer>
-    </div>
-  );
-};
-
-const ANOVACalc = () => {
-  const [m1, sM1] = useState(72);
-  const [m2, sM2] = useState(78);
-  const [m3, sM3] = useState(85);
-
-  const [v1, sV1] = useState(64);
-  const [v2, sV2] = useState(81);
-  const [v3, sV3] = useState(49);
-
-  const [ng, sNG] = useState(10);
-
-  const gm = (m1 + m2 + m3) / 3;
-  const ssB = ng * ((m1 - gm) ** 2 + (m2 - gm) ** 2 + (m3 - gm) ** 2);
-  const ssW = (ng - 1) * (v1 + v2 + v3);
-
-  const msB = ssB / 2;
-  const msW = ssW / (3 * ng - 3);
-  const f = msW > 0 ? msB / msW : 0;
-  const pV = 1 - fCDF(f, 2, 3 * ng - 3);
-  const sig = pV < 0.05;
-
-  return (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-        {[[m1, sM1, v1, sV1, C.blue, "1"], [m2, sM2, v2, sV2, C.purple, "2"], [m3, sM3, v3, sV3, C.accent, "3"]].map(([m, sm, v, sv, c, l]) => (
-          <div key={l} style={{ background: c === C.blue ? C.blueLt : c === C.purple ? C.purpleLt : C.accentLt, borderRadius: 8, padding: 10 }}>
-            <div style={{ fontFamily: "var(--m)", fontSize: 10, color: c }}>GROUP {l}</div>
-            <Sl label="Mean" value={m} min={50} max={100} onChange={sm} color={c} />
-            <Sl label="Var" value={v} min={10} max={200} onChange={sv} color={c} />
-          </div>
-        ))}
-      </div>
-      <Sl label="n per group" value={ng} min={5} max={50} onChange={sNG} color={C.gold} />
-
-      <CR items={[["Grand mean", gm.toFixed(1)], ["SS_between", ssB.toFixed(0)], ["SS_within", ssW.toFixed(0)], ["F", f.toFixed(2), true], ["p-value", pV < 0.001 ? "<0.001" : pV.toFixed(4), true], ["Result", sig ? "Reject H0" : "Fail to reject", true]]} hl={sig} />
-    </div>
-  );
-};
-
-const IntCalc = () => {
-  const [a1b1, s11] = useState(120);
-  const [a1b2, s12] = useState(60);
-  const [a2b1, s21] = useState(90);
-  const [a2b2, s22] = useState(85);
-
-  const data = [{ x: "Urban", A: a1b1, B: a2b1 }, { x: "Rural", A: a1b2, B: a2b2 }];
-
-  const cross = (a1b1 > a2b1) !== (a1b2 > a2b2);
-  const slopeA = a1b2 - a1b1;
-  const slopeB = a2b2 - a2b1;
-  const interaction = Math.abs(slopeA - slopeB) > 1e-9;
-
-  return (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div style={{ background: C.accentLt, borderRadius: 8, padding: 10 }}>
-          <div style={{ fontFamily: "var(--m)", fontSize: 10, color: C.accent }}>STRATEGY A</div>
-          <Sl label="Urban" value={a1b1} min={20} max={200} onChange={s11} color={C.accent} />
-          <Sl label="Rural" value={a1b2} min={20} max={200} onChange={s12} color={C.accent} />
-        </div>
-
-        <div style={{ background: C.blueLt, borderRadius: 8, padding: 10 }}>
-          <div style={{ fontFamily: "var(--m)", fontSize: 10, color: C.blue }}>STRATEGY B</div>
-          <Sl label="Urban" value={a2b1} min={20} max={200} onChange={s21} color={C.blue} />
-          <Sl label="Rural" value={a2b2} min={20} max={200} onChange={s22} color={C.blue} />
-        </div>
-      </div>
-      <ResponsiveContainer width="100%" height={200}>
-        <LineChart data={data} margin={{ top: 10, right: 25, bottom: 15, left: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-          <XAxis dataKey="x" tick={{ fontSize: 12 }} />
-          <YAxis tick={{ fontSize: 10, fill: C.muted }} width={35} />
-
-          <Line dataKey="A" stroke={C.accent} strokeWidth={3} dot={{ r: 5, fill: C.accent }} name="Strategy A" />
-
-          <Line dataKey="B" stroke={C.blue} strokeWidth={3} dot={{ r: 5, fill: C.blue }} name="Strategy B" />
-
-          <Legend wrapperStyle={{ fontSize: 11 }} />
-        </LineChart>
-      </ResponsiveContainer>
-
-      <div style={{ textAlign: "center", fontSize: 13, marginTop: 4, color: interaction ? C.red : C.green, fontWeight: 600 }}>
-        {!interaction
-          ? "Parallel lines → No interaction."
-          : cross
-            ? "Lines cross → Interaction! Best strategy depends on market."
-            : "Non-parallel lines → Interaction, even without crossing."}
-      </div>
+      <CR
+        items={[
+          ["SE", se.toFixed(3)],
+          ["df", df],
+          ["t-statistic", t.toFixed(3), true],
+          ["p-value", pV < 0.001 ? "<0.001" : pV.toFixed(4), true],
+          ["Critical value", `±${crit.toFixed(3)}`],
+          ["Decision", sig ? "Reject H0" : "Fail to reject", true],
+        ]}
+        hl={sig}
+      />
     </div>
   );
 };
 
 /* ═══════════════════ NAV ═══════════════════ */
 const secs = [
-  { id: "overview", l: "Overview" },
-  { id: "datatypes", l: "Your Data Type" },
-  { id: "foundations", l: "Foundations" },
+  { id: "basics", l: "Basics", group: true },
+  { id: "se", l: "Standard Error" },
+  { id: "df", l: "Degrees of Freedom" },
+  { id: "clt", l: "Central Limit Theorem" },
+  { id: "tests", l: "Tests", group: true },
   { id: "z-test", l: "Z-Test" },
+  { id: "t-test", l: "t-Tests" },
   { id: "ab-test", l: "A/B Testing" },
-  { id: "t-dist", l: "t-Distribution" },
-  { id: "t-tests", l: "t-Tests" },
+  { id: "practice", l: "In Practice", group: true },
   { id: "wrong-test", l: "Wrong Test" },
-  { id: "f-dist", l: "F-Distribution" },
-  { id: "anova", l: "One-Way ANOVA" },
-  { id: "two-way", l: "Two-Way ANOVA" },
   { id: "assumptions", l: "Assumptions" },
   { id: "beyond-p", l: "Beyond p-Values" },
   { id: "decision", l: "Decision Guide" },
@@ -1563,7 +1122,10 @@ const secs = [
 
 /* ═══════════════════ APP ═══════════════════ */
 export default function App() {
-  const [active, setA] = useState("overview");
+  const [active, setA] = useState("se");
+  const [navOpen, setNavOpen] = useState(false);
+  const navRef = useRef(null);
+  const activeLabel = secs.find((s) => s.id === active)?.l || "Standard Error";
 
   useEffect(() => {
     const obs = new IntersectionObserver(
@@ -1574,7 +1136,7 @@ export default function App() {
       { rootMargin: "-20% 0px -70% 0px" },
     );
 
-    secs.forEach((s) => {
+    secs.filter((s) => !s.group).forEach((s) => {
       const el = document.getElementById(s.id);
       if (el) obs.observe(el);
     });
@@ -1582,9 +1144,40 @@ export default function App() {
     return () => obs.disconnect();
   }, []);
 
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const syncNavState = (event) => {
+      if (!event.matches) setNavOpen(false);
+    };
+
+    syncNavState(mq);
+    mq.addEventListener("change", syncNavState);
+    return () => mq.removeEventListener("change", syncNavState);
+  }, []);
+
   const go = (id) => {
     const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!el) return;
+
+    const scrollToTarget = () => {
+      const isMobile = window.matchMedia("(max-width: 900px)").matches;
+      const summary = navRef.current?.querySelector(".tutorial-nav-summary");
+      const navOffset = isMobile
+        ? Math.ceil(summary?.getBoundingClientRect().height || 88) + 16
+        : 24;
+      const top = el.getBoundingClientRect().top + window.scrollY - navOffset;
+
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      el.focus({ preventScroll: true });
+    };
+
+    if (window.matchMedia("(max-width: 900px)").matches && navOpen) {
+      setNavOpen(false);
+      requestAnimationFrame(() => requestAnimationFrame(scrollToTarget));
+      return;
+    }
+
+    scrollToTarget();
   };
 
   return (
@@ -1600,216 +1193,246 @@ export default function App() {
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
       .tutorial-nav{position:fixed;top:0;left:0;width:195px;height:100vh;background:${C.card};border-right:1px solid ${C.border};padding:20px 0;overflow-y:auto;z-index:999}
       .tutorial-main{margin-left:195px;padding:36px 38px 80px;max-width:760px;font-family:var(--s);font-size:15.5px;line-height:1.75;color:${C.text}}
+      .tutorial-nav-title{padding:0 14px 16px;border-bottom:1px solid ${C.border};margin-bottom:10px;font-family:var(--h);font-size:15px;color:${C.accent}}
+      .tutorial-nav-summary{display:none}
+      .tutorial-nav-toggle{display:none}
+      .tutorial-nav-panel{display:block}
+      .tutorial-section{margin-top:52px;scroll-margin-top:32px}
+      .tutorial-section:focus-visible{outline:2px solid ${C.accent};outline-offset:6px}
+      .responsive-grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+      .responsive-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+      .tutorial-disclosure-button:focus-visible,.tutorial-nav-link:focus-visible,.tutorial-nav-toggle:focus-visible{outline:2px solid ${C.accent};outline-offset:2px}
       @media (max-width: 900px){
-        .tutorial-nav{position:sticky;width:100%;height:auto;max-height:45vh;border-right:none;border-bottom:1px solid ${C.border}}
+        .tutorial-nav{position:sticky;width:100%;height:auto;max-height:none;border-right:none;border-bottom:1px solid ${C.border};padding:0;box-shadow:0 10px 30px rgba(26,26,26,0.08)}
         .tutorial-main{margin-left:0;padding:20px 16px 60px;max-width:none}
+        .tutorial-nav-title{padding:14px 16px 10px;margin-bottom:0;border-bottom:none}
+        .tutorial-nav-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 16px 14px}
+        .tutorial-nav-toggle{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:10px 14px;border-radius:999px;border:1px solid ${C.border};background:${C.accentLt};color:${C.accent};font-family:var(--m);font-size:11px;font-weight:600;letter-spacing:0.04em;cursor:pointer}
+        .tutorial-nav-panel{display:none;border-top:1px solid ${C.border};padding:8px 0 14px;max-height:calc(100vh - 130px);overflow-y:auto}
+        .tutorial-nav.is-open .tutorial-nav-panel{display:block}
+        .tutorial-nav-group{padding:12px 16px 6px !important;font-size:11px !important}
+        .tutorial-nav-link{padding:11px 16px 11px 22px !important;font-size:13px !important;min-height:44px}
+        .tutorial-section{margin-top:40px !important;scroll-margin-top:104px}
+        .responsive-grid-2,.responsive-grid-3{grid-template-columns:1fr !important}
+        .responsive-table{min-width:560px}
       }`}</style>
 
-      <nav className="tutorial-nav">
-        <div
-          style={{
-            padding: "0 14px 16px",
-            fontFamily: "var(--h)",
-            fontSize: 15,
-            color: C.accent,
-            borderBottom: `1px solid ${C.border}`,
-            marginBottom: 10,
-          }}
-        >
+      <nav
+        ref={navRef}
+        className={`tutorial-nav${navOpen ? " is-open" : ""}`}
+        aria-label="Tutorial sections"
+      >
+        <div className="tutorial-nav-title">
           Hypothesis Testing
         </div>
 
-        {secs.map((s) => (
-          <button
-            key={s.id}
-            onClick={() => go(s.id)}
-            style={{
-              display: "block",
-              width: "100%",
-              textAlign: "left",
-              padding: "6px 14px",
-              border: "none",
-              cursor: "pointer",
-              background: active === s.id ? C.accentLt : "transparent",
-              color: active === s.id ? C.accent : C.muted,
-              fontWeight: active === s.id ? 600 : 400,
-              fontFamily: "var(--m)",
-              fontSize: 11,
-              borderLeft: active === s.id ? `3px solid ${C.accent}` : "3px solid transparent",
-              transition: "all 0.15s",
-            }}
-          >
-            {s.l}
-          </button>
-        ))}
-      </nav>
-
-      <main className="tutorial-main">
-        <section id="overview">
-          <div style={{ marginBottom: 44 }}>
-            <Pill c={C.greenLt}>Interactive Tutorial</Pill>
-
-            <h1 style={{ fontFamily: "var(--h)", fontSize: 34, fontWeight: 400, lineHeight: 1.15, margin: "12px 0 8px" }}>Hypothesis Testing</h1>
-
-            <p style={{ fontSize: 16, color: C.sub, margin: 0 }}>From Z-Tests to A/B Testing to Two-Way ANOVA</p>
-
-            <div style={{ marginTop: 14, padding: "10px 14px", background: C.codeBg, borderRadius: 8, fontSize: 13, color: C.sub }}>
-              <strong style={{ color: C.text }}>Prerequisite:</strong> You know the Central Limit Theorem - sample means are roughly normally distributed for large n.
+        <div className="tutorial-nav-summary">
+          <div style={{ minWidth: 0 }}>
+            <div
+              style={{
+                fontFamily: "var(--m)",
+                fontSize: 11,
+                color: C.muted,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                marginBottom: 4,
+              }}
+            >
+              Current Section
+            </div>
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: C.text,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {activeLabel}
             </div>
           </div>
 
-          <SH n="0" t="The Big Picture" />
+          <button
+            type="button"
+            className="tutorial-nav-toggle"
+            onClick={() => setNavOpen((open) => !open)}
+            aria-expanded={navOpen}
+            aria-controls="tutorial-nav-panel"
+          >
+            {navOpen ? "Hide Sections" : "Browse Sections"}
+          </button>
+        </div>
+
+        <div id="tutorial-nav-panel" className="tutorial-nav-panel">
+          {secs.map((s) =>
+            s.group ? (
+              <div
+                key={s.id}
+                className="tutorial-nav-group"
+                style={{
+                  padding: "12px 14px 4px",
+                  fontFamily: "var(--m)",
+                  fontSize: 11,
+                  color: C.muted,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.12em",
+                  borderTop: s.id !== "basics" ? `1px solid ${C.border}` : "none",
+                  marginTop: s.id !== "basics" ? 8 : 0,
+                }}
+              >
+                {s.l}
+              </div>
+            ) : (
+              <button
+                key={s.id}
+                type="button"
+                className="tutorial-nav-link"
+                onClick={() => go(s.id)}
+                aria-current={active === s.id ? "location" : undefined}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "5px 14px 5px 20px",
+                  border: "none",
+                  cursor: "pointer",
+                  background: active === s.id ? C.accentLt : "transparent",
+                  color: active === s.id ? C.accent : C.muted,
+                  fontWeight: active === s.id ? 600 : 400,
+                  fontFamily: "var(--m)",
+                  fontSize: 11,
+                  borderLeft: active === s.id ? `3px solid ${C.accent}` : "3px solid transparent",
+                  transition: "all 0.15s",
+                }}
+              >
+                {s.l}
+              </button>
+            )
+          )}
+        </div>
+      </nav>
+
+      <main className="tutorial-main">
+        <div style={{ marginBottom: 44 }}>
+          <Pill c={C.greenLt}>Interactive Tutorial</Pill>
+
+          <h1 style={{ fontFamily: "var(--h)", fontSize: 34, fontWeight: 400, lineHeight: 1.15, margin: "12px 0 8px" }}>Hypothesis Testing</h1>
+
+          <p style={{ fontSize: 16, color: C.sub, margin: 0 }}>From Z-Tests to A/B Testing — an interactive reference</p>
+
+          <Card a={C.teal} bg={C.tealLt} style={{ marginTop: 16 }}>
+            <div
+              style={{
+                fontFamily: "var(--m)",
+                fontSize: 11,
+                color: C.teal,
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                marginBottom: 8,
+              }}
+            >
+              Quick Reference
+            </div>
+            <h2 style={{ fontFamily: "var(--h)", fontSize: 22, fontWeight: 400, margin: "0 0 10px" }}>Key Terms</h2>
+            <div className="responsive-grid-2" style={{ gap: 10 }}>
+              <div>
+                <strong>H0:</strong> the null hypothesis, or the default claim you test against.
+              </div>
+              <div>
+                <strong>H1:</strong> the alternative hypothesis, or what you would conclude if H0 is not convincing.
+              </div>
+              <div>
+                <strong>alpha:</strong> the cutoff for calling a result statistically significant, usually 0.05.
+              </div>
+              <div>
+                <strong>p-value:</strong> how surprising your data would be if H0 were true.
+              </div>
+            </div>
+          </Card>
+
+          <div style={{ marginTop: 14, padding: "10px 14px", background: C.codeBg, borderRadius: 8, fontSize: 13, color: C.sub }}>
+            <strong style={{ color: C.text }}>Prerequisite:</strong> You know the Central Limit Theorem - sample means are roughly normally distributed for large n.
+          </div>
+
+          <h2 style={{ fontFamily: "var(--h)", fontSize: 24, fontWeight: 400, margin: "18px 0 8px", color: C.text }}>The Big Picture</h2>
 
           <p>
             Every test asks: <strong>"Is this real, or just noise?"</strong>
           </p>
 
           <FB parts={[{ t: "Test Stat", c: C.accent, b: true }, { t: "=" }, { t: "(What I saw", c: C.blue }, { t: "-" }, { t: "Expected)", c: C.purple }, { t: "/" }, { t: "Noise", c: C.green }]} notes={[{ c: C.blue, l: "Your sample result" }, { c: C.purple, l: "What H0 predicts" }, { c: C.green, l: "Standard error" }]} />
-          <p>
+
+          <p style={{ marginBottom: 0 }}>
             Big ratio → surprising → probably real.
             <br />
             Small ratio → ordinary → probably noise.
           </p>
+        </div>
 
-          <Confusion title="Confusion: What are Type I and Type II errors?">
+        <section id="se" className="tutorial-section" tabIndex={-1}>
+          <SH n="1" t="Standard Error" s="The spread of the sampling distribution" />
+
+          <CoreCard title="What is standard error?" a={C.blue} bg={C.blueLt}>
             <p>
-              <strong>Type I error (false positive):</strong> You reject H0 when it's actually true. You "find" an effect that isn't there. The probability of this is alpha (usually 0.05).
+              The <strong>standard error (SE)</strong> is the standard deviation of the <em>sampling distribution</em>.
+              It measures how much the sample mean would vary if you repeated the experiment many times.
             </p>
-
-            <p>
-              <strong>Type II error (false negative):</strong> You fail to reject H0 when it's actually false. You miss a real effect. The probability of this is beta.
-            </p>
-
-            <p>
-              <strong>Power = 1 - beta</strong> = the probability of correctly detecting a real effect.
-            </p>
-
-            <p>
-              <strong>The tradeoff:</strong> Making alpha smaller (harder to reject H0) reduces false positives but increases false negatives. You can't minimize both without more data.
-            </p>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
-              <div style={{ background: C.redLt, borderRadius: 6, padding: 10, fontSize: 13 }}>
-                <strong>Type I:</strong> Convicting an innocent person. alpha controls this.
-              </div>
-
-              <div style={{ background: C.goldLt, borderRadius: 6, padding: 10, fontSize: 13 }}>
-                <strong>Type II:</strong> Letting a guilty person go free. Power controls this.
-              </div>
-            </div>
-          </Confusion>
-        </section>
-
-        <section id="datatypes" style={{ marginTop: 52 }}>
-          <SH n="1" t="What Distribution Does My Data Come From?" s="This decides which test to use" />
-
-          <p>
-            The single most important question before picking a test: <strong>is each observation a number or a yes/no?</strong>
-          </p>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, margin: "20px 0" }}>
-            <Card a={C.blue} bg={C.blueLt}>
-              <div style={{ fontFamily: "var(--m)", fontSize: 11, color: C.blue, marginBottom: 6 }}>CONTINUOUS DATA</div>
-
-              <p style={{ margin: "0 0 8px", fontWeight: 600 }}>Each observation is a number on a scale.</p>
-
-              <p style={{ margin: "0 0 6px", fontSize: 14 }}>Heights, weights, test scores, blood pressure, reaction times, revenue amounts.</p>
-
-              <p style={{ margin: 0, fontSize: 14 }}>The underlying distribution can be anything - normal, skewed, bimodal. The CLT makes the <em>sample mean</em> normal.</p>
-
-              <div style={{ marginTop: 10, fontFamily: "var(--m)", fontSize: 12, color: C.blue }}>→ Z-test, t-test, ANOVA</div>
-            </Card>
-            <Card a={C.accent} bg={C.accentLt}>
-              <div style={{ fontFamily: "var(--m)", fontSize: 11, color: C.accent, marginBottom: 6 }}>BINARY DATA (BERNOULLI)</div>
-
-              <p style={{ margin: "0 0 8px", fontWeight: 600 }}>Each observation is yes or no.</p>
-
-              <p style={{ margin: "0 0 6px", fontSize: 14 }}>Clicked or didn't. Bought or didn't. Cured or not. Passed or failed.</p>
-
-              <p style={{ margin: 0, fontSize: 14 }}>Each observation is a Bernoulli trial with probability p. The conversion rate is the mean of many coin flips.</p>
-
-              <div style={{ marginTop: 10, fontFamily: "var(--m)", fontSize: 12, color: C.accent }}>→ Z-test for proportions (A/B test)</div>
-            </Card>
-          </div>
-
-          <CoreCard title="Why this changes the test you use" a={C.gold} bg={C.goldLt}>
-            <p>
-              <strong>Continuous data:</strong> you usually do not know the population standard deviation sigma,
-              so you estimate it with <em>s</em>. That extra uncertainty leads to t-based methods.
-            </p>
-
-            <p>
-              <strong>Binary data:</strong> for proportions, large-sample test statistics are approximately normal,
-              so z-based methods are used.
-            </p>
-
             <p style={{ marginBottom: 0 }}>
-              That is why A/B tests are usually z-based, while many mean comparisons are t-based.
+              SE is <strong>not</strong> the standard deviation of your data.
+              It is the standard deviation of <em>the estimator itself</em>.
             </p>
           </CoreCard>
 
-          <Confusion title="Confusion: 'Don't all tests assume normal data?'">
-            <p>
-              <strong>No.</strong> The tests assume the <em>test statistic</em> is approximately normal (or t, or F). That's different from the raw data being normal.
-            </p>
+          <K d>{"SE(\\bar{x}) = \\frac{\\sigma}{\\sqrt{n}}"}</K>
 
-            <p>The CLT is the bridge. It says: no matter what the individual data looks like, the <em>average</em> of enough observations is approximately normal.</p>
+          <div className="responsive-grid-3" style={{ gap: 10, margin: "14px 0" }}>
+            <Card a={C.blue} bg={C.blueLt}>
+              <div style={{ fontFamily: "var(--m)", fontSize: 11, color: C.blue, marginBottom: 4 }}>σ</div>
+              <div style={{ fontSize: 13 }}>Spread of individuals in the population</div>
+            </Card>
+            <Card a={C.green} bg={C.greenLt}>
+              <div style={{ fontFamily: "var(--m)", fontSize: 11, color: C.green, marginBottom: 4 }}>√n</div>
+              <div style={{ fontSize: 13 }}>More data → more cancellation of errors</div>
+            </Card>
+            <Card a={C.accent} bg={C.accentLt}>
+              <div style={{ fontFamily: "var(--m)", fontSize: 11, color: C.accent, marginBottom: 4 }}>SE</div>
+              <div style={{ fontSize: 13 }}>Spread of sample means — how much your estimate wiggles</div>
+            </Card>
+          </div>
 
-            <p>So your data can be skewed, bimodal, or Bernoulli. As long as n is large enough, the sample mean (or proportion) is approximately normal, and the test works.</p>
-
-            <p>
-              <strong>Exception:</strong> Small samples (n &lt; 15) with very skewed data. Here the CLT hasn't kicked in. Use non-parametric tests instead.
-            </p>
-          </Confusion>
-
-          <Card style={{ background: C.codeBg }}>
-            <div style={{ fontFamily: "var(--m)", fontSize: 12.5, lineHeight: 2, whiteSpace: "pre-wrap" }}>{`Your data
-
-|
-
-|- Binary (yes/no) ---- Bernoulli ---- Z-test for proportions
-
-|                                       (A/B testing)
-
-|
-
-|- Continuous (number) -- Could be any shape
-
-                          |
-
-                          |- sigma known ---- Z-test
-
-                          |- sigma unknown -- t-test or ANOVA`}</div>
-          </Card>
-        </section>
-
-        <section id="foundations" style={{ marginTop: 52 }}>
-          <SH n="2" t="Standard Error & Degrees of Freedom" s="Two building blocks every test uses" />
-
-          <h3 style={{ fontFamily: "var(--h)", fontSize: 20, margin: "20px 0 8px" }}>Standard Error (SE)</h3>
-
-          <p>How much would the sample mean jump around if you repeated the study?</p>
-
-          <FB parts={[{ t: "SE", c: C.accent, b: true }, { t: "=" }, { t: "sigma", c: C.blue, b: true }, { t: "/" }, { t: "sqrt(n)", c: C.green, b: true }]} notes={[{ c: C.blue, l: "sigma - spread of individuals" }, { c: C.green, l: "sqrt(n) - more data = less noise" }, { c: C.accent, l: "SE - spread of sample means" }]} />
           <p>More data → smaller SE → easier to spot real effects.</p>
 
-          <DD title="Why sqrt(n)? (Diminishing returns)">
+          <DD title="Why √n? (Diminishing returns)">
             <p>Errors partly cancel when you average. The cancellation follows a square-root law.</p>
-
-            <p>To cut noise in half, you need 4x the data. To halve again, 16x. Diminishing returns.</p>
+            <p>To cut noise in half, you need 4× the data. To halve again, 16×. Diminishing returns.</p>
           </DD>
 
-          <CW title="Live: Watch SE shrink as n grows">
-            <SECalc />
+          <CW
+            title="Annotated Figure: Why SE Falls Slowly"
+            cap="The drop is steep at first, then flattens. Bigger samples still help, but each extra batch buys less precision."
+          >
+            <StandardErrorFigure />
           </CW>
 
-          <h3 style={{ fontFamily: "var(--h)", fontSize: 20, margin: "24px 0 8px" }}>Degrees of Freedom (df)</h3>
+          <Remember>SE = σ/√n. More data → smaller SE, but 4× data only halves SE.</Remember>
+        </section>
 
-          <p>How many independent pieces of information are left after estimating something.</p>
+        <section id="df" className="tutorial-section" tabIndex={-1}>
+          <SH n="2" t="Degrees of Freedom" s="How many independent pieces of information you have" />
 
-          <p>4 friends, 4 chairs. First 3 pick freely. The 4th has no choice. df = 3.</p>
+          <p>Degrees of freedom count how many pieces of information can still vary after you estimate something from the data.</p>
 
-          <p>Compute a mean from n values. Once you know the mean and n-1 values, the last is locked. df = n-1.</p>
+          <K d>{"df = n - 1"}</K>
+
+          <DD title="Why df = n − 1">
+            <p>4 friends, 4 chairs. First 3 pick freely. The 4th has no choice. df = 3.</p>
+
+            <p style={{ marginBottom: 0 }}>
+              Compute a mean from n values. Once you know the mean and n−1 values, the last is locked. <strong>df = n − 1</strong>.
+            </p>
+          </DD>
 
           <CoreCard title="Why degrees of freedom matter" a={C.purple} bg={C.purpleLt}>
             <p>Low df means fatter tails, so stronger evidence is needed to reject H0.</p>
@@ -1819,36 +1442,91 @@ export default function App() {
             </p>
           </CoreCard>
 
-          <CW title="Live: How df shapes the t-distribution">
-            <DOFCalc />
+          <CW
+            title="Annotated Figure: Low df Makes Tails Heavier"
+            cap="The blue t curve starts lower in the center and leaves more probability in the tails than the orange z curve."
+          >
+            <TvsZFigure />
           </CW>
+
+          <Remember>df = n−1. Low df → fat tails → need stronger evidence.</Remember>
+
         </section>
 
-        <section id="z-test" style={{ marginTop: 52 }}>
-          <SH n="3" t="Z-Test" s="The normal-distribution version of hypothesis testing (when σ is known)" />
+        <section id="clt" className="tutorial-section" tabIndex={-1}>
+          <SH n="3" t="Central Limit Theorem" s="Why hypothesis testing works at all" />
+
+          <CoreCard title="The CLT in one sentence" a={C.accent} bg={C.accentLt}>
+            <p style={{ marginBottom: 0 }}>
+              For large enough <em>n</em>, the sampling distribution of the sample mean is approximately
+              <strong> Normal</strong> — regardless of the shape of the original population.
+            </p>
+          </CoreCard>
+
+          <K d>{"\\bar{x} \\;\\approx\\; \\mathcal{N}\\!\\left(\\mu,\\; \\frac{\\sigma^2}{n}\\right)"}</K>
+
+          <p>
+            ⚠️ This does <strong>not</strong> mean the data are Normal. It means the <em>average</em> behaves approximately like
+            a Normal variable when <em>n</em> is large — even if the individual data points are wildly skewed.
+          </p>
+
+          <DD title="Review the CLT refresher">
+            <div className="responsive-grid-2" style={{ gap: 10, margin: "0 0 14px" }}>
+              <Card a={C.red} bg={C.redLt} style={{ marginBottom: 0 }}>
+                <strong>Without the CLT</strong>
+                <p style={{ fontSize: 13, margin: "6px 0 0" }}>
+                  We would not know the shape of the sampling distribution, so we could not judge how rare a result is.
+                </p>
+              </Card>
+              <Card a={C.green} bg={C.greenLt} style={{ marginBottom: 0 }}>
+                <strong>With the CLT</strong>
+                <p style={{ fontSize: 13, margin: "6px 0 0" }}>
+                  We get an approximately Normal reference curve for sample means, so hypothesis tests become possible.
+                </p>
+              </Card>
+            </div>
+
+            <CoreCard title="What type of data do you have?" a={C.gold} bg={C.goldLt} label="Quick Reference">
+              <div className="responsive-grid-2" style={{ gap: 10 }}>
+                <div>
+                  <strong>Continuous data</strong>
+                  <p style={{ fontSize: 13, margin: "4px 0 0" }}>
+                    Each observation is a number. Heights, test scores, revenue. You usually do not know σ, so you estimate it with <em>s</em> and use t-based methods.
+                  </p>
+                </div>
+                <div>
+                  <strong>Binary data (Bernoulli)</strong>
+                  <p style={{ fontSize: 13, margin: "4px 0 0" }}>
+                    Each observation is yes/no. Clicked or did not, bought or did not. Variance is p(1−p), which leads to z-based proportion tests.
+                  </p>
+                </div>
+              </div>
+            </CoreCard>
+          </DD>
+
+          <Confusion title="Confusion: 'Don't all tests assume normal data?'">
+            <p>
+              <strong>No.</strong> The tests assume the <em>test statistic</em> is approximately normal (or t). That's different from the raw data being normal.
+            </p>
+            <p>The CLT is the bridge. It says: no matter what the individual data looks like, the <em>average</em> of enough observations is approximately normal.</p>
+            <p>So your data can be skewed, bimodal, or Bernoulli. As long as n is large enough, the sample mean (or proportion) is approximately normal, and the test works.</p>
+            <p>
+              <strong>Exception:</strong> Small samples (n &lt; 15) with very skewed data. Here the CLT may not have kicked in yet. Consider non-parametric tests or bootstrap methods unless you have a strong reason to treat the population as roughly Normal.
+            </p>
+          </Confusion>
+
+          <Remember>Large n → sample mean is approximately Normal, regardless of population shape.</Remember>
+        </section>
+
+        <section id="z-test" className="tutorial-section" tabIndex={-1}>
+          <SH n="4" t="Z-Test" s="The normal-distribution version of hypothesis testing (when σ is known)" />
 
           <p>
             Use a <strong>z-test</strong> when the population standard deviation <strong>σ</strong> is known.
             In practice this is uncommon for means, but common for large-sample proportion tests.
           </p>
 
-          <FB
-            parts={[
-              { t: "Z", c: C.accent, b: true },
-              { t: "= (" },
-              { t: "Xbar", c: C.blue, b: true },
-              { t: "-" },
-              { t: "mu0", c: C.purple, b: true },
-              { t: ") / (" },
-              { t: "sigma / sqrt(n)", c: C.green, b: true },
-              { t: ")" },
-            ]}
-            notes={[
-              { c: C.blue, l: "Observed sample mean" },
-              { c: C.purple, l: "Null benchmark" },
-              { c: C.green, l: "Standard error (known σ)" },
-            ]}
-          />
+          <K d>{"z = \\frac{\\bar{x} - \\mu_0}{\\sigma / \\sqrt{n}}"}</K>
 
           <p>
             A z-score tells you how far your result is from the null value, measured in
@@ -1877,6 +1555,13 @@ export default function App() {
               Sample size still matters because the t-distribution gets closer to the normal distribution as n grows.
             </p>
           </CoreCard>
+
+          <CW
+            title="Annotated Figure: Statistic vs Tail Area"
+            cap="Critical values mark cutoffs on the x-axis. The p-value comes from the shaded probability in the tails."
+          >
+            <StandardNormalFigure />
+          </CW>
 
           <Card style={{ background: C.codeBg }}>
             <p style={{ margin: "0 0 8px" }}>
@@ -1948,105 +1633,97 @@ export default function App() {
             </St>
           </Worked>
 
-          <ComparisonCard
-            observedLabel="Sample mean"
-            observedValue="x̄ = 23"
-            nullLabel="Null mean"
-            nullValue="μ0 = 20"
-            noiseLabel="Standard error"
-            noiseValue="SE = 8 / √50 = 1.131"
-            statLine="z = (23 - 20) / 1.131 = 2.65"
-          />
+          <DistanceVsAreaCard statLabel="z-score" statExample="2.65" />
 
-          <Card style={{ background: C.codeBg }}>
-            <div style={{ fontWeight: 700, marginBottom: 10 }}>
-              From z = 2.65 to p = 0.008
-            </div>
+          <DD title="Manual z-table walkthrough">
+            <Card style={{ background: C.codeBg, marginBottom: 0 }}>
+              <div style={{ fontWeight: 700, marginBottom: 10 }}>
+                From z = 2.65 to p = 0.008
+              </div>
 
-            <p style={{ fontSize: 14, marginTop: 0 }}>
-              A z-table is the manual version of what the calculator does automatically.
-              Most z-tables show the <strong>cumulative area to the left</strong> of a z-score.
-            </p>
+              <p style={{ fontSize: 14, marginTop: 0 }}>
+                A z-table is the manual version of what the calculator does automatically.
+                Most z-tables show the <strong>cumulative area to the left</strong> of a z-score.
+              </p>
 
-            <div
-              style={{
-                overflowX: "auto",
-                border: `1px solid ${C.border}`,
-                borderRadius: 6,
-                margin: "14px 0",
-              }}
-            >
-              <table
+              <div
                 style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: 13,
-                  fontFamily: "var(--m)",
-                  textAlign: "center",
+                  overflowX: "auto",
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 6,
+                  margin: "14px 0",
                 }}
               >
-                <thead>
-                  <tr style={{ borderBottom: `2px solid ${C.accent}`, background: C.codeBg }}>
-                    <th style={{ padding: 8, color: C.muted, borderRight: `1px solid ${C.border}` }}>Z</th>
-                    <th style={{ padding: 8 }}>0.04</th>
-                    <th style={{ padding: 8, color: C.accent, background: C.accentLt }}>0.05</th>
-                    <th style={{ padding: 8 }}>0.06</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                    <td style={{ padding: 8, fontWeight: "bold", borderRight: `1px solid ${C.border}` }}>2.5</td>
-                    <td>0.9945</td>
-                    <td style={{ background: C.accentLt }}>0.9946</td>
-                    <td>0.9948</td>
-                  </tr>
-                  <tr style={{ borderBottom: `1px solid ${C.border}`, background: C.accentLt }}>
-                    <td
-                      style={{
-                        padding: 8,
-                        fontWeight: "bold",
-                        color: C.accent,
-                        borderRight: `1px solid ${C.border}`,
-                      }}
-                    >
-                      2.6
-                    </td>
-                    <td>0.9959</td>
-                    <td style={{ fontWeight: "bold", color: "#fff", background: C.accent }}>0.9960</td>
-                    <td>0.9961</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: 8, fontWeight: "bold", borderRight: `1px solid ${C.border}` }}>2.7</td>
-                    <td>0.9969</td>
-                    <td style={{ background: C.accentLt }}>0.9970</td>
-                    <td>0.9971</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: 13,
+                    fontFamily: "var(--m)",
+                    textAlign: "center",
+                  }}
+                >
+                  <thead>
+                    <tr style={{ borderBottom: `2px solid ${C.accent}`, background: C.codeBg }}>
+                      <th style={{ padding: 8, color: C.muted, borderRight: `1px solid ${C.border}` }}>Z</th>
+                      <th style={{ padding: 8 }}>0.04</th>
+                      <th style={{ padding: 8, color: C.accent, background: C.accentLt }}>0.05</th>
+                      <th style={{ padding: 8 }}>0.06</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                      <td style={{ padding: 8, fontWeight: "bold", borderRight: `1px solid ${C.border}` }}>2.5</td>
+                      <td>0.9945</td>
+                      <td style={{ background: C.accentLt }}>0.9946</td>
+                      <td>0.9948</td>
+                    </tr>
+                    <tr style={{ borderBottom: `1px solid ${C.border}`, background: C.accentLt }}>
+                      <td
+                        style={{
+                          padding: 8,
+                          fontWeight: "bold",
+                          color: C.accent,
+                          borderRight: `1px solid ${C.border}`,
+                        }}
+                      >
+                        2.6
+                      </td>
+                      <td>0.9959</td>
+                      <td style={{ fontWeight: "bold", color: "#fff", background: C.accent }}>0.9960</td>
+                      <td>0.9961</td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: 8, fontWeight: "bold", borderRight: `1px solid ${C.border}` }}>2.7</td>
+                      <td>0.9969</td>
+                      <td style={{ background: C.accentLt }}>0.9970</td>
+                      <td>0.9971</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
 
-            <ConceptCard title="How to read a z-table entry" a={C.teal} bg={C.tealLt} label="Z-Table">
-              <St n="1">
-                Look up <strong>2.65</strong> using row <strong>2.6</strong> and column <strong>0.05</strong>.
-              </St>
-              <St n="2">
-                The entry <strong>0.9960</strong> means:
-                <br />
-                <strong>P(Z ≤ 2.65) = 0.9960</strong>
-              </St>
-              <St n="3">
-                In plain English: <strong>99.60% of the normal curve lies to the left of z = 2.65.</strong>
-              </St>
-              <St n="4">
-                For a two-tailed test, first find the right tail:
-                <strong> 1 - 0.9960 = 0.0040</strong>,
-                then double it:
-                <strong> p = 0.0080</strong>.
-              </St>
-            </ConceptCard>
-          </Card>
-
-          <DistanceVsAreaCard statLabel="z-score" statExample="2.65" />
+              <ConceptCard title="How to read a z-table entry" a={C.teal} bg={C.tealLt} label="Z-Table">
+                <St n="1">
+                  Look up <strong>2.65</strong> using row <strong>2.6</strong> and column <strong>0.05</strong>.
+                </St>
+                <St n="2">
+                  The entry <strong>0.9960</strong> means:
+                  <br />
+                  <strong>P(Z ≤ 2.65) = 0.9960</strong>
+                </St>
+                <St n="3">
+                  In plain English: <strong>99.60% of the normal curve lies to the left of z = 2.65.</strong>
+                </St>
+                <St n="4">
+                  For a two-tailed test, first find the right tail:
+                  <strong> 1 - 0.9960 = 0.0040</strong>,
+                  then double it:
+                  <strong> p = 0.0080</strong>.
+                </St>
+              </ConceptCard>
+            </Card>
+          </DD>
 
           <DD title="What is Phi? (Optional notation)">
             <p>Statisticians often write the left-tail area as:</p>
@@ -2091,161 +1768,30 @@ export default function App() {
           <CW title="Live: Z-Test Calculator + Visualization">
             <ZTestCalc />
           </CW>
+
+          <Remember>z = (observed − expected) / SE. Compare p to α. Know your tail direction.</Remember>
         </section>
 
-        <section id="ab-test" style={{ marginTop: 52 }}>
-          <SH n="4" t="A/B Testing" s="Comparing two conversion rates" />
-
-          <p>
-            Each visitor converts or doesn't. That's a <strong>Bernoulli trial</strong>.
-          </p>
-
-          <p>For large samples, proportions are approximately normal with variance p(1-p), so z-based tests are used.</p>
-          <p>Because proportion variance is determined by p(1-p), the large-sample test statistic is naturally z-based.</p>
-
-          <h3 style={{ fontFamily: "var(--h)", fontSize: 20, margin: "20px 0 8px" }}>The Pooled Proportion</h3>
-
-          <p>H0 says both groups have the same rate. We estimate that shared rate by pooling:</p>
-          <FB parts={[{ t: "p", c: C.accent, b: true, h: C.accentLt }, { t: "= (" }, { t: "conversions1 + conversions2", c: C.blue, b: true }, { t: ") / (" }, { t: "visitors1 + visitors2", c: C.green, b: true }, { t: ")" }]} notes={[{ c: C.accent, l: "Pooled rate - best estimate under H0" }, { c: C.blue, l: "Total successes" }, { c: C.green, l: "Total trials" }]} />
-
-          <CoreCard title="Why pool instead of using each group's rate?" color={C.accent} bg={C.accentLt}>
-            <p>
-              Under <strong>H0: pA = pB</strong>, both groups come from one shared underlying conversion rate.
-            </p>
-
-            <p>
-              So the standard error should be built from one shared estimate of that null rate,
-              which is exactly what the pooled proportion does.
-            </p>
-
-            <p>
-              Using separate group rates builds variability under the alternative, not under the null,
-              so it is the wrong reference frame for this hypothesis test.
-            </p>
-          </CoreCard>
-
-          <ComparisonCard
-            observedLabel="Observed difference"
-            observedValue="p̂B - p̂A"
-            nullLabel="Null difference"
-            nullValue="0"
-            noiseLabel="Pooled standard error"
-            noiseValue="√[ p(1-p)(1/n1 + 1/n2) ]"
-            statLine="z = (p̂B - p̂A) / pooled SE"
-          />
-
-          <h3 style={{ fontFamily: "var(--h)", fontSize: 20, margin: "20px 0 8px" }}>The Full Formula</h3>
-          <FB parts={[{ t: "Z", c: C.accent, b: true }, { t: "= (" }, { t: "pB - pA", c: C.blue, b: true }, { t: ") / sqrt(" }, { t: "p(1-p)", c: C.purple, b: true }, { t: "x" }, { t: "(1/n1 + 1/n2)", c: C.green, b: true }, { t: ")" }]} notes={[{ c: C.blue, l: "Observed difference" }, { c: C.purple, l: "Bernoulli variance (pooled)" }, { c: C.green, l: "Both sample sizes" }]} />
-
-          <Worked title="Checkout Button: Blue vs. Green">
-            <p>Blue: 1000 visitors, 120 converts (12%). Green: 1000, 148 converts (14.8%).</p>
-            <St n="1">
-              Pooled p = 268/2000 = <strong>0.134</strong>
-            </St>
-            <St n="2">
-              SE = sqrt(0.134 x 0.866 x 0.002) = <strong>0.01525</strong>
-            </St>
-            <St n="3">
-              Z = 0.028/0.01525 = <strong>1.836</strong>. p = 0.066. <strong>Not significant.</strong>
-            </St>
-          </Worked>
-
-          <Confusion title="Confusion: 'My A/B test proved the button caused more sales'">
-            <p>A/B tests with proper randomization <em>can</em> support causal claims - that's their strength.</p>
-
-            <p>But only if done right. Watch for: unequal traffic splits, peeking at results early, external events affecting one group, or the test running during an unusual period.</p>
-
-            <p>
-              <strong>Observational data</strong> (not randomized) can NEVER prove causation, no matter how significant the p-value. Correlation != causation. Ice cream sales and drownings are both correlated with summer, not with each other.
-            </p>
-
-            <p>If you can't randomize, you can only say "associated with," not "caused by."</p>
-          </Confusion>
-
-          <DD title="Common A/B testing mistakes">
-            <p>
-              <strong>Peeking:</strong> Checking daily and stopping when p&lt;0.05. Use fixed sample size or sequential testing.
-            </p>
-
-            <p>
-              <strong>Too small:</strong> Most tests need thousands per group. Run a power analysis first.
-            </p>
-
-            <p>
-              <strong>Winner's curse:</strong> The estimated effect of a "winner" is usually inflated.
-            </p>
-          </DD>
-
-          <CW title="Live: A/B Test Calculator">
-            <ABCalc />
-          </CW>
-        </section>
-
-        <section id="t-dist" style={{ marginTop: 52 }}>
-          <SH n="5" t="The t-Distribution" s="When you estimate sigma from your sample" />
+        <section id="t-test" className="tutorial-section" tabIndex={-1}>
+          <SH n="5" t="t-Tests" s="When σ is unknown — three versions for different data structures" />
 
           <p>
             You rarely know <strong>σ</strong>. Instead, you estimate the spread with the sample standard deviation
             <strong> s</strong>. That extra uncertainty gives the t-distribution its fatter tails.
           </p>
-          <FB parts={[{ t: "t", c: C.accent, b: true }, { t: "= (" }, { t: "Xbar", c: C.blue, b: true }, { t: "-" }, { t: "mu0", c: C.purple, b: true }, { t: ") / (" }, { t: "s", c: C.red, b: true }, { t: "/ sqrt" }, { t: "n", c: C.green, b: true }, { t: ")" }]} notes={[{ c: C.red, l: "s - estimated, not known" }, { c: C.accent, l: "Follows t, not Z" }, { c: C.green, l: "df = n - 1" }]} />
+
+          <K d>{"t = \\frac{\\bar{x} - \\mu_0}{s / \\sqrt{n}}"}</K>
 
           <p>Fatter tails = stronger evidence needed to reject H0. Protects you with small samples.</p>
 
           <CoreCard title="Why t is different from z" a={C.purple} bg={C.purpleLt}>
             <p>
-              In a <strong>z-test</strong>, the population standard deviation <strong>σ</strong> is known.
-            </p>
-            <p>
-              In a <strong>t-test</strong>, you do <strong>not</strong> know σ, so you estimate the spread using the
-              sample standard deviation <strong>s</strong>.
-            </p>
-            <p>
-              That estimate adds extra uncertainty, so the reference distribution is <strong>t</strong> instead of
-              <strong> z</strong>.
+              In a <strong>z-test</strong>, σ is known. In a <strong>t-test</strong>, you estimate spread with <strong>s</strong>.
             </p>
             <p style={{ marginBottom: 0 }}>
-              The amount of extra uncertainty depends on the <strong>degrees of freedom</strong>: low df gives
-              fatter tails, while high df makes t look more like z.
+              That extra uncertainty depends on <strong>degrees of freedom</strong>: low df → fatter tails, high df → looks like z.
             </p>
           </CoreCard>
-
-          <ComparisonCard
-            observedLabel="Observed mean difference"
-            observedValue="x̄ - μ0"
-            nullLabel="Null value"
-            nullValue="usually 0"
-            noiseLabel="Estimated standard error"
-            noiseValue="s / √n"
-            statLine="t = (observed - expected) / estimated SE"
-          />
-
-          <DistanceVsAreaCard statLabel="t-score" statExample="2.1" />
-
-          <DD title="Optional: how to use a t-table by hand">
-            <St n="1">Choose the test direction, alpha, and correct df.</St>
-            <St n="2">Go to the df row and alpha column to find the critical t-value.</St>
-            <St n="3">Reject H0 if your observed t is more extreme than that cutoff.</St>
-            <St n="4">Example: with df = 12 and two-tailed alpha = 0.05, the critical value is about ±2.179.</St>
-            <St n="5">So |t| = 2.50 rejects, while |t| = 1.80 does not.</St>
-          </DD>
-
-          <CW
-            title="Live: From observed t-score to p-value"
-            cap="Move the observed t-score, change degrees of freedom, and switch tail type. The shaded area is the p-value."
-          >
-            <TValueCalc />
-          </CW>
-
-          <DD title="When does t vs. Z matter?">
-            <p>n &lt; 15 → big difference. n = 15-30 → noticeable. n &gt; 30 → nearly identical.</p>
-
-            <p>When sigma is unknown, the t-test is the standard choice for continuous mean comparisons.</p>
-          </DD>
-        </section>
-
-        <section id="t-tests" style={{ marginTop: 52 }}>
-          <SH n="6" t="t-Tests" s="Three versions for different data structures" />
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 10, margin: "14px 0" }}>
             {[ ["One-Sample", "Is this mean different from a value?", C.blueLt], ["Two-Sample", "Do two groups have different means?", C.purpleLt], ["Paired", "Did matched observations change?", C.accentLt] ].map(([n, q, c]) => (
@@ -2274,6 +1820,19 @@ export default function App() {
             </p>
           </CoreCard>
 
+          <Worked title="Class Scores vs National Average">
+            <p>A class of 25 students averages 78 on a standardized test. The national average is 75 and the class SD is 8.</p>
+            <St n="1">
+              Use a <strong>one-sample t-test</strong> because there is one group and σ is unknown.
+            </St>
+            <St n="2">
+              SE = 8 / √25 = <strong>1.6</strong>, so the class mean is <strong>1.875 SEs</strong> above the benchmark.
+            </St>
+            <St n="3">
+              Compare the t statistic with the t distribution using <strong>df = 24</strong>, not the normal curve.
+            </St>
+          </Worked>
+
           <h3 style={{ fontFamily: "var(--h)", fontSize: 20, margin: "20px 0 8px" }}>One-Sample t-Test</h3>
 
           <p>Is this group's mean different from a target number?</p>
@@ -2282,15 +1841,25 @@ export default function App() {
           </p>
           <p>Typical use case: compare a class, clinic, or product average to a known benchmark.</p>
 
-          <p style={{ margin: "10px 0 6px", fontFamily: "var(--m)", fontSize: 10.5, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-            Formula breakdown
-          </p>
-          <FB parts={[{ t: "t", c: C.accent, b: true }, { t: "= (" }, { t: "Xbar - mu0", c: C.blue, b: true }, { t: ") / (" }, { t: "s / sqrt(n)", c: C.green, b: true }, { t: ")" }]} notes={[{ c: C.blue, l: "How far from the target" }, { c: C.green, l: "Standard error (estimated)" }]} />
+          <K d>{"t = \\frac{\\bar{x} - \\mu_0}{s / \\sqrt{n}}, \\quad df = n - 1"}</K>
 
           <p>Same as Z-test but with <em>s</em> instead of sigma. Compare against t-distribution, df = n-1.</p>
           <CW title="Live: One-Sample t-Test">
             <OneTCalc />
           </CW>
+
+          <Worked title="Teaching Method A vs B">
+            <p>Two independent classes use different teaching methods. Method A has 30 students with mean 82, Method B has 30 students with mean 78.</p>
+            <St n="1">
+              Use a <strong>two-sample t-test</strong> because the groups are separate and each group has its own spread.
+            </St>
+            <St n="2">
+              Welch&apos;s version is the safe default when standard deviations can differ.
+            </St>
+            <St n="3">
+              The question is whether the observed mean gap is large relative to the combined standard error.
+            </St>
+          </Worked>
 
           <h3 style={{ fontFamily: "var(--h)", fontSize: 20, margin: "24px 0 8px" }}>Two-Sample t-Test</h3>
 
@@ -2300,10 +1869,7 @@ export default function App() {
             <strong> μ1 - μ2</strong> is <strong>0</strong>.
           </p>
 
-          <p style={{ margin: "10px 0 6px", fontFamily: "var(--m)", fontSize: 10.5, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-            Formula breakdown
-          </p>
-          <FB parts={[{ t: "t", c: C.accent, b: true }, { t: "= (" }, { t: "X1 - X2", c: C.blue, b: true }, { t: ") / sqrt(" }, { t: "s1^2/n1", c: C.purple, b: true }, { t: "+" }, { t: "s2^2/n2", c: C.green, b: true }, { t: ")" }]} notes={[{ c: C.blue, l: "Difference in means" }, { c: C.purple, l: "Noise from group 1" }, { c: C.green, l: "Noise from group 2" }]} />
+          <K d>{"t = \\frac{\\bar{x}_1 - \\bar{x}_2}{\\sqrt{\\frac{s_1^2}{n_1} + \\frac{s_2^2}{n_2}}}"}</K>
 
           <p>Welch's version adjusts df when variances differ. Use it by default.</p>
           <DD title="Why is the two-sample df not just n1 + n2 - 2 here?">
@@ -2330,6 +1896,19 @@ export default function App() {
             <TwoTCalc />
           </CW>
 
+          <Worked title="Blood Pressure Before vs After Treatment">
+            <p>Ten patients are measured before treatment and again four weeks later. Each patient acts as their own control.</p>
+            <St n="1">
+              Use a <strong>paired t-test</strong> because the measurements come in matched before/after pairs.
+            </St>
+            <St n="2">
+              First convert each patient into one difference score, then test whether the mean difference is far from zero.
+            </St>
+            <St n="3">
+              Pairing removes between-person noise, so it is usually more powerful than pretending the samples are independent.
+            </St>
+          </Worked>
+
           <h3 style={{ fontFamily: "var(--h)", fontSize: 20, margin: "24px 0 8px" }}>Paired t-Test</h3>
 
           <p>Before/after or matched data. Same subject in both conditions.</p>
@@ -2337,10 +1916,7 @@ export default function App() {
             Under <strong>H0</strong>, the mean of the within-pair differences is <strong>0</strong>.
           </p>
 
-          <p style={{ margin: "10px 0 6px", fontFamily: "var(--m)", fontSize: 10.5, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-            Formula breakdown
-          </p>
-          <FB parts={[{ t: "t", c: C.accent, b: true }, { t: "=" }, { t: "dbar", c: C.blue, b: true }, { t: "/ (" }, { t: "sd", c: C.purple, b: true }, { t: "/" }, { t: "sqrt(n)", c: C.green, b: true }, { t: ")" }]} notes={[{ c: C.blue, l: "Mean of within-pair differences" }, { c: C.purple, l: "How much differences vary" }, { c: C.green, l: "Number of pairs" }]} />
+          <K d>{"t = \\frac{\\bar{d}}{s_d / \\sqrt{n}}, \\quad df = n - 1"}</K>
 
           <p>Removes between-person variation → much more powerful than independent t-test.</p>
           <DD title="How a paired t-test really works">
@@ -2372,16 +1948,132 @@ export default function App() {
           <CW title="Live: Paired t-Test">
             <PairedTCalc />
           </CW>
+
+          <Remember>Same as z-test but with s instead of σ. Fatter tails protect you with small samples.</Remember>
         </section>
 
-        <section id="wrong-test" style={{ marginTop: 52 }}>
+        <section id="ab-test" className="tutorial-section" tabIndex={-1}>
+          <SH n="6" t="A/B Testing" s="Comparing two conversion rates" />
+
+          <p>
+            Each visitor converts or doesn't. That's a <strong>Bernoulli trial</strong>.
+          </p>
+
+          <p>For large samples, proportions are approximately normal with variance p(1-p), so z-based tests are used.</p>
+          <p>Because proportion variance is determined by p(1-p), the large-sample test statistic is naturally z-based.</p>
+
+          <h3 style={{ fontFamily: "var(--h)", fontSize: 20, margin: "20px 0 8px" }}>The Pooled Proportion</h3>
+
+          <p>H0 says both groups have the same rate. We estimate that shared rate by pooling:</p>
+          <K d>{"\\hat{p}_{\\text{pool}} = \\frac{x_A + x_B}{n_A + n_B}"}</K>
+
+          <CoreCard title="Why pool instead of using each group's rate?" color={C.accent} bg={C.accentLt}>
+            <p>
+              Under <strong>H0: pA = pB</strong>, both groups come from one shared underlying conversion rate.
+            </p>
+
+            <p>
+              So the standard error should be built from one shared estimate of that null rate,
+              which is exactly what the pooled proportion does.
+            </p>
+
+            <p>
+              Using separate group rates builds variability under the alternative, not under the null,
+              so it is the wrong reference frame for this hypothesis test.
+            </p>
+          </CoreCard>
+
+          <DD title="Why pooling works">
+            <ComparisonCard
+              observedLabel="Observed difference"
+              observedValue="p̂B - p̂A"
+              nullLabel="Null difference"
+              nullValue="0"
+              noiseLabel="Pooled standard error"
+              noiseValue="√[ p(1-p)(1/n1 + 1/n2) ]"
+              statLine="z = (p̂B - p̂A) / pooled SE"
+            />
+          </DD>
+
+          <h3 style={{ fontFamily: "var(--h)", fontSize: 20, margin: "20px 0 8px" }}>The Full Formula</h3>
+          <K d>{"z = \\frac{\\hat{p}_B - \\hat{p}_A}{\\sqrt{\\hat{p}(1-\\hat{p})\\left(\\frac{1}{n_A}+\\frac{1}{n_B}\\right)}}"}</K>
+
+          <DD title="Deriving the A/B test standard error">
+            <St n="1">
+              <strong>A proportion is a mean.</strong> Each user outcome is 0 or 1, so <K>{"\\hat{p} = \\bar{X}"}</K>. We can use the SE formula for a mean.
+            </St>
+            <St n="2">
+              <strong>Bernoulli variance.</strong> For a 0/1 variable with probability <K>{"p"}</K>:
+              <K d>{"\\text{Var}(X) = p(1-p)"}</K>
+              Largest at <K>{"p=0.5"}</K>, zero at 0 or 1.
+            </St>
+            <St n="3">
+              <strong>SE of one proportion.</strong> Plug Bernoulli variance into <K>{"SE = \\sigma/\\sqrt{n}"}</K>:
+              <K d>{"SE(\\hat{p}) = \\sqrt{\\frac{p(1-p)}{n}}"}</K>
+            </St>
+            <St n="4">
+              <strong>SE of the difference.</strong> If A and B are independent:
+              <K d>{"\\text{Var}(\\hat{p}_B - \\hat{p}_A) = \\frac{p(1-p)}{n_A} + \\frac{p(1-p)}{n_B} = p(1-p)\\left(\\frac{1}{n_A}+\\frac{1}{n_B}\\right)"}</K>
+            </St>
+            <St n="5">
+              <strong>Why use the pooled estimate?</strong> Under <K>{"H_0: p_A = p_B = p"}</K>, there is one shared probability. We don't know it, so we estimate it with <K>{"\\hat{p}_{\\text{pool}}"}</K> from all the data.
+            </St>
+          </DD>
+
+          <Worked title="Checkout Button: Blue vs. Green">
+            <p>Blue: 1000 visitors, 120 converts (12%). Green: 1000, 148 converts (14.8%).</p>
+            <St n="1">
+              Pooled p = 268/2000 = <strong>0.134</strong>
+            </St>
+            <St n="2">
+              SE = sqrt(0.134 x 0.866 x 0.002) = <strong>0.01523</strong>
+            </St>
+            <St n="3">
+              Z = 0.028/0.01523 = <strong>1.838</strong>. p = 0.066. <strong>Not significant.</strong>
+            </St>
+          </Worked>
+
+          <Confusion title="Confusion: 'My A/B test proved the button caused more sales'">
+            <p>A/B tests with proper randomization <em>can</em> support causal claims - that's their strength.</p>
+
+            <p>But only if done right. Watch for: unequal traffic splits, peeking at results early, external events affecting one group, or the test running during an unusual period.</p>
+
+            <p>
+              <strong>Observational data</strong> (not randomized) can NEVER prove causation, no matter how significant the p-value. Correlation ≠ causation. Ice cream sales and drownings are both correlated with summer, not with each other.
+            </p>
+
+            <p>If you can't randomize, you can only say "associated with," not "caused by."</p>
+          </Confusion>
+
+          <DD title="Common A/B testing mistakes">
+            <p>
+              <strong>Peeking:</strong> Checking daily and stopping when p&lt;0.05. Use fixed sample size or sequential testing.
+            </p>
+
+            <p>
+              <strong>Too small:</strong> Required sample size depends on baseline rate, effect size, alpha, power, and traffic split. Some tests need thousands per group, but not all of them do.
+            </p>
+
+            <p>
+              <strong>Winner's curse:</strong> The estimated effect of a "winner" is usually inflated.
+            </p>
+          </DD>
+
+          <CW title="Live: A/B Test Calculator">
+            <ABCalc />
+          </CW>
+
+          <Remember>Two-proportion z-test. Pool under H₀. Watch for peeking and winner's curse.</Remember>
+        </section>
+
+        <section id="wrong-test" className="tutorial-section" tabIndex={-1}>
           <SH n="7" t="Wrong Test, Wrong Answer" s="What happens when you pick incorrectly" />
 
           <Danger title="Z-test when sigma is unknown (n=12)">
-            <p>You use Z critical +-1.96. Correct: t critical +-2.201.</p>
+            <p>You use Z critical ±1.96. Correct: t critical ±2.201.</p>
 
             <p>
-              <strong>Impact:</strong> ~60% more false positives than expected.
+              <strong>Impact:</strong> ~50% more false positives than expected.
             </p>
           </Danger>
           <DD title="Why it matters more for small samples">
@@ -2409,123 +2101,21 @@ export default function App() {
               <strong>Impact:</strong> Real error rate is 10%, not 5%. This is p-hacking.
             </p>
           </Danger>
+
+          <Remember>Wrong test → wrong answer. Check: do you know σ? Are groups paired? How many comparisons?</Remember>
         </section>
 
-        <section id="f-dist" style={{ marginTop: 52 }}>
-          <SH n="8" t="The F-Distribution" s="For comparing sources of variation" />
 
-          <FB parts={[{ t: "F", c: C.accent, b: true }, { t: "=" }, { t: "Variance between groups", c: C.blue, b: true }, { t: "/" }, { t: "Variance within groups", c: C.green, b: true }]} notes={[{ c: C.blue, l: "Signal + noise" }, { c: C.green, l: "Noise only" }, { c: C.accent, l: "F ~ 1 → no effect. F >> 1 → real differences." }]} />
-          <DD title="Key properties">
-            <p>Always positive. Right-skewed. Two df parameters. t^2 = F(1, df).</p>
-          </DD>
-          <CW title="Live: F-Distribution Explorer">
-            <FCalc />
-          </CW>
-        </section>
 
-        <section id="anova" style={{ marginTop: 52 }}>
-          <SH n="9" t="One-Way ANOVA" s="Compare 3+ groups without inflating errors" />
-
-          <p>If group means are equal, spread between groups should match spread within groups. If between is much larger → real differences.</p>
-          <FB parts={[{ t: "F", c: C.accent, b: true }, { t: "=" }, { t: "MS_between", c: C.blue, b: true }, { t: "/" }, { t: "MS_within", c: C.green, b: true }]} notes={[{ c: C.blue, l: "SS_between / (k-1)" }, { c: C.green, l: "SS_within / (N-k)" }]} />
-
-          <CoreCard title="Why ANOVA instead of many t-tests?" color={C.accent} bg={C.accentLt}>
-            <p>Each individual t-test carries its own false-positive risk (often 5%).</p>
-            <p>As you run more pairwise tests, those risks stack up and the chance of at least one false alarm rises quickly.</p>
-            <p>
-              ANOVA starts with one global question: <strong>is there evidence that not all means are equal?</strong>
-              If yes, then use post-hoc tests to locate where differences are.
-            </p>
-          </CoreCard>
-
-          <CoreCard title="What are SS and MS?" color={C.blue} bg={C.blueLt}>
-            <p>
-              <strong>SS_between:</strong> How spread out group means are. Bigger → groups differ more.
-            </p>
-
-            <p>
-              <strong>SS_within:</strong> How spread out values are within each group. This is pure noise.
-            </p>
-
-            <p>
-              <strong>MS</strong> = SS / df. Dividing by df makes the values comparable.
-            </p>
-          </CoreCard>
-
-          <p style={{ marginTop: 6 }}>
-            <strong>Important:</strong> ANOVA tells you that at least one mean differs, but not which one.
-            Use <strong>post-hoc tests</strong> (such as Tukey's HSD or Bonferroni) to identify the specific group differences.
-          </p>
-
-          <Confusion title="Confusion: 'ANOVA found a difference, so the treatment works'">
-            <p>ANOVA detects <em>differences</em>. Whether those differences are <em>causal</em> depends on your study design.</p>
-
-            <p>
-              <strong>Randomized experiment:</strong> Participants randomly assigned to groups → ANOVA can support causal claims.
-            </p>
-
-            <p>
-              <strong>Observational study:</strong> Groups formed naturally (e.g., comparing people who chose different diets) → ANOVA shows association, not causation. Confounding variables could explain the difference.
-            </p>
-          </Confusion>
-
-          <Worked title="Three Teaching Methods">
-            <p>A: mean=72, var=64. B: mean=78, var=81. C: mean=85, var=49. n=10 each.</p>
-            <St n="1">Grand mean = 78.33</St>
-            <St n="2">
-              SS_between = <strong>847</strong>, SS_within = <strong>1746</strong>
-            </St>
-            <St n="3">
-              F = 423.5/64.7 = <strong>6.55</strong> → Reject H0
-            </St>
-          </Worked>
-          <CW title="Live: ANOVA Calculator">
-            <ANOVACalc />
-          </CW>
-        </section>
-
-        <section id="two-way" style={{ marginTop: 52 }}>
-          <SH n="10" t="Two-Way ANOVA" s="Two factors + their interaction" />
-
-          <p>
-            The key question: does one factor's effect <strong>depend on</strong> the other?
-          </p>
-          <FB parts={[{ t: "SS_total", c: C.muted }, { t: "=" }, { t: "SS_A", c: C.blue, b: true }, { t: "+" }, { t: "SS_B", c: C.green, b: true }, { t: "+" }, { t: "SS_AxB", c: C.accent, b: true }, { t: "+" }, { t: "SS_within", c: C.muted }]} notes={[{ c: C.blue, l: "Factor A" }, { c: C.green, l: "Factor B" }, { c: C.accent, l: "Interaction" }]} />
-          <DD title="What is an interaction?">
-            <p>
-              <strong>No interaction:</strong> A's effect is the same at every level of B. Lines are parallel.
-            </p>
-
-            <p>
-              <strong>Interaction:</strong> A's effect changes depending on B. Lines cross or diverge.
-            </p>
-          </DD>
-
-          <DD title="Why interaction can make main effects misleading">
-            <p>If Strategy A gives 120 in urban and 60 in rural, its average is 90.</p>
-
-            <p>Strategy B gives 90 and 85, average 87.5. Main effects say "roughly equal."</p>
-
-            <p>But the real story is: A dominates in cities, B dominates in rural. The average hides everything.</p>
-
-            <p>
-              <strong>Rule:</strong> Check interaction first. If significant, don't interpret main effects alone.
-            </p>
-          </DD>
-          <CW title="Live: Interaction Plot">
-            <IntCalc />
-          </CW>
-        </section>
-
-        <section id="assumptions" style={{ marginTop: 52 }}>
-          <SH n="11" t="Assumptions" s="What to check and what to do when they fail" />
+        <section id="assumptions" className="tutorial-section" tabIndex={-1}>
+          <SH n="8" t="Assumptions" s="What to check and what to do when they fail" />
 
           <div style={{ overflowX: "auto", margin: "14px 0" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
+            <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
               <thead>
                 <tr style={{ borderBottom: `2px solid ${C.accent}` }}>
                   {["Assumption", "If violated...", "Fix"].map((h) => (
-                    <th key={h} style={{ textAlign: "left", padding: "8px 10px", fontFamily: "var(--m)", fontSize: 10, color: C.muted, textTransform: "uppercase" }}>
+                    <th key={h} style={{ textAlign: "left", padding: "8px 10px", fontFamily: "var(--m)", fontSize: 11, color: C.muted, textTransform: "uppercase" }}>
                       {h}
                     </th>
                   ))}
@@ -2537,7 +2127,7 @@ export default function App() {
                   ["Independence", "P-values meaningless", "Mixed/multilevel models"],
                   ["Normality", "Minor for large n", "Non-parametric or bootstrap"],
                   ["Equal variances", "Inflated false positives", "Welch's t or Welch's ANOVA"],
-                  ["Balanced design", "Confounded effects", "Type III sums of squares"],
+                  ["Unbalanced design", "Main effects can be harder to interpret", "Use planned contrasts or a model that matches the design"],
                 ].map((r, i) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
                     {r.map((c, j) => (
@@ -2571,8 +2161,8 @@ export default function App() {
           </DD>
         </section>
 
-        <section id="beyond-p" style={{ marginTop: 52 }}>
-          <SH n="12" t="Beyond p-Values" s="What else you need to report" />
+        <section id="beyond-p" className="tutorial-section" tabIndex={-1}>
+          <SH n="9" t="Beyond p-Values" s="What else you need to report" />
 
           <p>A p-value says how surprising the result is if H0 were true. That's it. You also need:</p>
 
@@ -2631,7 +2221,7 @@ export default function App() {
             <p>That difference is statistically real - not random noise. But it's too tiny to matter for anyone.</p>
 
             <p>
-              <strong>Statistical significance != practical importance.</strong> Always check effect size.
+              <strong>Statistical significance ≠ practical importance.</strong> Always check effect size.
             </p>
 
             <p>A drug that lowers blood pressure by 0.1 mmHg might be "significant" with enough patients. No doctor would prescribe it.</p>
@@ -2648,16 +2238,18 @@ export default function App() {
 
             <p>It's about the <em>procedure</em>, not this specific interval. In practice, the difference rarely matters. But on exams, the wording matters.</p>
           </Confusion>
+
+          <Remember>Always report effect size and CI alongside the p-value.</Remember>
         </section>
 
-        <section id="decision" style={{ marginTop: 52 }}>
-          <SH n="13" t="Decision Guide" s="Which test should you use?" />
+        <section id="decision" className="tutorial-section" tabIndex={-1}>
+          <SH n="10" t="Decision Guide" s="Which test should you use?" />
           <div style={{ overflowX: "auto", margin: "14px 0" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
+            <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
               <thead>
                 <tr style={{ borderBottom: `2px solid ${C.accent}` }}>
                   {["Situation", "Data", "Groups", "Test"].map((h) => (
-                    <th key={h} style={{ textAlign: "left", padding: "8px 10px", fontFamily: "var(--m)", fontSize: 10, color: C.muted, textTransform: "uppercase" }}>
+                    <th key={h} style={{ textAlign: "left", padding: "8px 10px", fontFamily: "var(--m)", fontSize: 11, color: C.muted, textTransform: "uppercase" }}>
                       {h}
                     </th>
                   ))}
@@ -2666,13 +2258,11 @@ export default function App() {
 
               <tbody>
                 {[
-                  ["Mean vs. benchmark", "Continuous, sigma known", "1", "Z-test"],
-                  ["Mean vs. benchmark", "Continuous, sigma unknown", "1", "One-sample t"],
+                  ["Mean vs. benchmark", "Continuous, σ known", "1", "Z-test"],
+                  ["Mean vs. benchmark", "Continuous, σ unknown", "1", "One-sample t"],
                   ["Two conversion rates", "Binary (Bernoulli)", "2", "A/B test (Z)"],
                   ["Two independent means", "Continuous", "2", "Two-sample t"],
                   ["Before/after", "Continuous (paired)", "2", "Paired t"],
-                  ["3+ group means", "Continuous", "3+", "One-way ANOVA"],
-                  ["Two factors", "Continuous", "Varies", "Two-way ANOVA"],
                 ].map((r, i) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
                     {r.map((c, j) => (
@@ -2686,17 +2276,20 @@ export default function App() {
             </table>
           </div>
 
-          <CoreCard title="Practical workflow" a={C.green} bg={C.greenLt}>
-            <St n="1">Identify the variable type and study design.</St>
-            <St n="2">Choose the matching test.</St>
-            <St n="3">Compute the test statistic.</St>
-            <St n="4">Get the p-value or compare with a critical value.</St>
-            <St n="5">State the decision: reject H0 or fail to reject H0.</St>
-            <St n="6">Report effect size, confidence interval, and key assumptions.</St>
-          </CoreCard>
+          <DD title="Practical workflow">
+            <CoreCard title="Practical workflow" a={C.green} bg={C.greenLt} style={{ marginBottom: 0 }}>
+              <St n="1">Identify the variable type and study design.</St>
+              <St n="2">Choose the matching test.</St>
+              <St n="3">Compute the test statistic.</St>
+              <St n="4">Get the p-value or compare with a critical value.</St>
+              <St n="5">State the decision: reject H0 or fail to reject H0.</St>
+              <St n="6">Report effect size, confidence interval, and key assumptions.</St>
+            </CoreCard>
+          </DD>
 
-          <Card style={{ background: C.codeBg }}>
-            <div style={{ fontFamily: "var(--m)", fontSize: 12, lineHeight: 1.9, whiteSpace: "pre", overflowX: "auto" }}>{`Central Limit Theorem
+          <DD title="Decision tree reference">
+            <Card style={{ background: C.codeBg, marginBottom: 0 }}>
+              <div style={{ fontFamily: "var(--m)", fontSize: 12, lineHeight: 1.9, whiteSpace: "pre", overflowX: "auto" }}>{`Central Limit Theorem
 
 |
 
@@ -2708,28 +2301,21 @@ export default function App() {
 
 |
 
-|- Continuous data, sigma known
+|- Continuous data, σ known
 
 |  |- Z-test
 
 |
 
-|- Continuous data, sigma unknown
+|- Continuous data, σ unknown
 
-|  |- One-sample t-test
+   |- One-sample t-test
 
-|  |- Two-sample t-test (Welch's)
+   |- Two-sample t-test (Welch's)
 
-|  |- Paired t-test
-
-|
-
-|- Comparing 3+ groups (continuous)
-
-   |- One-way ANOVA → post-hoc tests
-
-   |- Two-way ANOVA → check interaction first`}</div>
-          </Card>
+   |- Paired t-test`}</div>
+            </Card>
+          </DD>
 
           <div style={{ marginTop: 28, padding: "22px 18px", background: `linear-gradient(135deg,${C.accentLt} 0%,${C.blueLt} 100%)`, borderRadius: 10, textAlign: "center" }}>
             <div style={{ fontFamily: "var(--h)", fontSize: 20, marginBottom: 8 }}>The Unifying Idea</div>
@@ -2738,7 +2324,7 @@ export default function App() {
               <br />
               More data → less noise → easier to spot real effects.
               <br />
-              Z, t, and F are just different rulers for "how surprising is this?"
+              Z and t are just different rulers for "how surprising is this?"
             </p>
           </div>
         </section>
