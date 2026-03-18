@@ -159,7 +159,7 @@ const TypeTag = ({ children, bg = C.codeBg, color = C.sub }) => (
   </span>
 );
 
-const DD = ({ title, children, open: dOpen }) => {
+const DD = ({ title, children, open: dOpen, buttonProps }) => {
   const [o, sO] = useState(dOpen || false);
   const panelId = useId();
   const buttonId = `${panelId}-button`;
@@ -181,6 +181,7 @@ const DD = ({ title, children, open: dOpen }) => {
         aria-expanded={o}
         aria-controls={panelId}
         className="tutorial-disclosure-button"
+        {...buttonProps}
         style={{
           width: "100%",
           display: "flex",
@@ -686,6 +687,96 @@ const Remember = ({ children }) => (
   </Card>
 );
 
+const ExerciseSolution = ({ children }) => {
+  const [o, sO] = useState(false);
+  const panelId = useId();
+  const buttonId = `${panelId}-button`;
+
+  return (
+    <div>
+      <button
+        type="button"
+        id={buttonId}
+        onClick={() => sO(!o)}
+        aria-expanded={o}
+        aria-controls={panelId}
+        className="tutorial-disclosure-button"
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          padding: "10px 14px",
+          border: `1px solid ${C.border}`,
+          borderRadius: 8,
+          background: o ? C.card : "rgba(255,255,255,0.7)",
+          cursor: "pointer",
+          textAlign: "left",
+          fontFamily: "var(--m)",
+          fontSize: 11,
+          color: C.purple,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+        }}
+      >
+        <span>{o ? "Hide Solution" : "Show Solution"}</span>
+        <span aria-hidden="true">{o ? "−" : "+"}</span>
+      </button>
+
+      {o && (
+        <div
+          id={panelId}
+          role="region"
+          aria-labelledby={buttonId}
+          style={{
+            marginTop: 12,
+            padding: "14px 16px",
+            border: `1px solid ${C.border}`,
+            borderRadius: 8,
+            background: C.card,
+          }}
+        >
+          <div style={{ lineHeight: 1.75 }}>{children}</div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const Exercise = ({ question, solution }) => (
+  <Card a={C.purple} bg={C.purpleLt}>
+    <div
+      style={{
+        fontFamily: "var(--m)",
+        fontSize: 11,
+        color: C.purple,
+        textTransform: "uppercase",
+        letterSpacing: "0.1em",
+        marginBottom: 8,
+      }}
+    >
+      EXERCISE
+    </div>
+    <div style={{ lineHeight: 1.75, marginBottom: 14 }}>{question}</div>
+    <ExerciseSolution>{solution}</ExerciseSolution>
+  </Card>
+);
+
+const ExerciseBlock = ({ id, title, exercises }) => (
+  <div id={id} tabIndex={-1}>
+    <DD title={title} buttonProps={{ "data-exercise-toggle": "true" }}>
+      {exercises.map((exercise, index) => (
+        <Exercise
+          key={exercise.id || `${id}-exercise-${index + 1}`}
+          question={exercise.question}
+          solution={exercise.solution}
+        />
+      ))}
+    </DD>
+  </div>
+);
+
 const Danger = ({ title, children }) => (
   <Card a={C.red} bg={C.redLt}>
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: title ? 10 : 0 }}>
@@ -1104,7 +1195,7 @@ const PairedTCalc = () => {
 };
 
 /* ═══════════════════ NAV ═══════════════════ */
-const secs = [
+const baseSecs = [
   { id: "basics", l: "Basics", group: true },
   { id: "se", l: "Standard Error" },
   { id: "df", l: "Degrees of Freedom" },
@@ -1120,12 +1211,354 @@ const secs = [
   { id: "decision", l: "Decision Guide" },
 ];
 
+const seExercises = [
+  {
+    id: "se-setup",
+    question: "If n stays the same but σ doubles, what happens to the standard error?",
+    solution: (
+      <>
+        <p>
+          SE changes in the same direction as σ because <K>{"SE = \\frac{\\sigma}{\\sqrt{n}}"}</K>.
+        </p>
+        <p style={{ marginBottom: 0 }}>If σ doubles and n is fixed, the standard error also doubles.</p>
+      </>
+    ),
+  },
+  {
+    id: "se-compute",
+    question: "A population has σ = 12 and you sample n = 36. Find the standard error.",
+    solution: (
+      <>
+        <K d>{"SE = \\frac{12}{\\sqrt{36}} = \\frac{12}{6} = 2"}</K>
+        <p style={{ marginBottom: 0 }}>The standard error is 2.</p>
+      </>
+    ),
+  },
+  {
+    id: "se-interpret",
+    question: "If one study has a smaller SE than another, what does that say about the estimate?",
+    solution: (
+      <p style={{ marginBottom: 0 }}>
+        A smaller <K>{"SE"}</K> means the estimator wiggles less from sample to sample, so the estimate is more
+        precise.
+      </p>
+    ),
+  },
+  {
+    id: "se-trap",
+    question: "A student says SE is just the standard deviation of the raw data. What is wrong with that claim?",
+    solution: (
+      <p style={{ marginBottom: 0 }}>
+        That confuses the spread of individual observations, often written as <K>{"\\sigma"}</K> or <K>{"s"}</K>, with
+        the spread of sample means. <K>{"SE"}</K> describes the sampling distribution of the estimator, not the raw data
+        themselves.
+      </p>
+    ),
+  },
+];
+
+const dfExercises = [
+  {
+    id: "df-setup",
+    question: "You estimate a sample mean from n = 9 observations. What degrees of freedom should you use?",
+    solution: (
+      <>
+        <K d>{"df = n - 1 = 9 - 1 = 8"}</K>
+        <p style={{ marginBottom: 0 }}>Use 8 degrees of freedom because estimating the mean uses up one free piece of information.</p>
+      </>
+    ),
+  },
+  {
+    id: "df-compute",
+    question: "If you add one more observation to a one-sample t setting, how does df change?",
+    solution: (
+      <p style={{ marginBottom: 0 }}>
+        For a one-sample t procedure, <K>{"df = n - 1"}</K>. Increasing <em>n</em> by 1 increases df by 1.
+      </p>
+    ),
+  },
+  {
+    id: "df-interpret",
+    question: "Why can the same t-statistic lead to a smaller p-value when df is larger?",
+    solution: (
+      <p style={{ marginBottom: 0 }}>
+        Larger df makes the t-distribution less heavy-tailed and closer to the Normal curve, so extreme values become less expected and the same t-statistic can look more surprising.
+      </p>
+    ),
+  },
+  {
+    id: "df-trap",
+    question: "A student says df always equals the sample size. What is the mistake?",
+    solution: (
+      <p style={{ marginBottom: 0 }}>
+        Degrees of freedom count how many values can still vary after estimating parameters. In the one-sample mean case, the sample mean fixes one constraint, so df is usually <K>{"n - 1"}</K>, not <K>{"n"}</K>.
+      </p>
+    ),
+  },
+];
+
+const cltExercises = [
+  {
+    id: "clt-setup",
+    question: "A population is strongly right-skewed. What does the CLT say happens to the sample mean when n becomes large?",
+    solution: (
+      <p style={{ marginBottom: 0 }}>
+        The raw data can stay skewed, but the sampling distribution of the sample mean <K>{"\\bar{x}"}</K> becomes
+        approximately Normal as the sample size grows.
+      </p>
+    ),
+  },
+  {
+    id: "clt-compute",
+    question:
+      "A population is strongly right-skewed with μ = 50 and σ = 10. If n = 25, what does the CLT say about the sampling distribution of x̄?",
+    solution: (
+      <>
+        <K d>{"\\bar{x} \\approx \\mathcal{N}\\!\\left(50,\\; \\frac{10^2}{25}\\right)"}</K>
+        <p style={{ marginBottom: 0 }}>
+          Even though the population is right-skewed, the CLT says the sample mean is approximately Normal for a
+          reasonably large sample. Its center is <strong>50</strong> and its standard error is{" "}
+          <K>{"10 / \\sqrt{25} = 2"}</K>.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "clt-interpret",
+    question: "Why does the CLT matter for hypothesis testing?",
+    solution: (
+      <p style={{ marginBottom: 0 }}>
+        It gives us an approximately Normal reference distribution for the statistic, so we can judge how unusual the
+        observed result is under <K>{"H_0"}</K>.
+      </p>
+    ),
+  },
+  {
+    id: "clt-trap",
+    question: "A student says the CLT means all large datasets are Normal. What is the mistake?",
+    solution: (
+      <p style={{ marginBottom: 0 }}>
+        The CLT is about the distribution of sample means or test statistics such as <K>{"\\bar{x}"}</K>, not the shape
+        of the original data. The raw observations do not have to become Normal.
+      </p>
+    ),
+  },
+];
+
+const zExercises = [
+  {
+    id: "z-setup",
+    question:
+      "A machine should fill bags with mean weight 500 g. The population standard deviation is known to be 12 g. A sample of 36 bags has x̄ = 504 g. State H₀ and H₁ for a two-sided z-test.",
+    solution: (
+      <>
+        <K d>{"H_0: \\mu = 500 \\qquad H_1: \\mu \\neq 500"}</K>
+        <p style={{ marginBottom: 0 }}>
+          Because the question asks whether the true mean is different from 500 g in either direction, this is a
+          two-sided test on <K>{"\\mu"}</K>.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "z-compute",
+    question:
+      "Using the same bag-filling study (μ₀ = 500, σ = 12, n = 36, x̄ = 504), compute the test statistic, find the two-sided p-value, and make the decision at α = 0.05.",
+    solution: (
+      <>
+        <K d>{"z = \\frac{\\bar{x} - \\mu_0}{\\sigma / \\sqrt{n}} = \\frac{504 - 500}{12 / 6} = 2.00"}</K>
+        <K d>{"p = 2\\bigl(1 - \\Phi(2.00)\\bigr) \\approx 2(1 - 0.9772) = 0.0456"}</K>
+        <p style={{ marginBottom: 0 }}>
+          Since <K>{"p = 0.0456 < 0.05"}</K>, reject <K>{"H_0"}</K>. The sample gives statistically significant
+          evidence that the machine mean differs from 500 g.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "z-interpret",
+    question: "A two-sided z-test gives p = 0.045. What does that mean in plain language?",
+    solution: (
+      <>
+        <p>
+          It means that if <K>{"H_0"}</K> were true, the probability of getting a result at least this extreme in
+          either direction would be about <K>{"4.5\\%"}</K>.
+        </p>
+        <p style={{ marginBottom: 0 }}>
+          It does <strong>not</strong> mean there is a <K>{"4.5\\%"}</K> chance that <K>{"H_0"}</K> itself is true.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "z-trap",
+    question:
+      "A student looks at x̄ = 504 > 500 and changes a planned two-sided z-test into a right-tailed test after seeing the data. Why is that a mistake?",
+    solution: (
+      <>
+        <p>
+          Tail direction should be chosen before seeing the sample. Changing from <K>{"H_1: \\mu \\neq 500"}</K> to{" "}
+          <K>{"H_1: \\mu > 500"}</K> after the fact makes the p-value look smaller than planned.
+        </p>
+        <p style={{ marginBottom: 0 }}>
+          That inflates false positives because the rule for rejection was changed using the observed data.
+        </p>
+      </>
+    ),
+  },
+];
+
+const tExercises = [
+  {
+    id: "t-setup",
+    question:
+      "A one-sample t-test is used to check whether the mean exam score differs from 75 when n = 16, x̄ = 72, and s = 8. State H₀ and H₁ for the test.",
+    solution: (
+      <>
+        <K d>{"H_0: \\mu = 75 \\qquad H_1: \\mu \\neq 75"}</K>
+        <p style={{ marginBottom: 0 }}>
+          Because this is a one-sample t-test about whether the mean differs from 75 in either direction, the
+          alternative is two-sided and the parameter is <K>{"\\mu"}</K>.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "t-compute",
+    question:
+      "A two-sample t-test compares Group A (n = 25, x̄ = 82, s = 10) with Group B (n = 25, x̄ = 74, s = 10). Compute the test statistic and make the decision at α = 0.05.",
+    solution: (
+      <>
+        <K d>{"SE = \\sqrt{\\frac{10^2}{25} + \\frac{10^2}{25}} = \\sqrt{8} \\approx 2.83"}</K>
+        <K d>{"t = \\frac{82 - 74}{2.83} \\approx 2.83"}</K>
+        <p style={{ marginBottom: 0 }}>
+          With a two-sample t-test, <K>{"|t| \\approx 2.83"}</K> is comfortably beyond the usual 5% cutoff, so reject{" "}
+          <K>{"H_0"}</K> and conclude the group means differ.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "t-interpret",
+    question:
+      "A paired t-test on before/after measurements gives t = -2.45 and p = 0.02. What does that mean?",
+    solution: (
+      <>
+        <p>
+          In a paired t-test, the null is usually <K>{"\\mu_d = 0"}</K>, where <K>{"\\mu_d"}</K> is the mean within-pair
+          difference.
+        </p>
+        <p style={{ marginBottom: 0 }}>
+          Since <K>{"p = 0.02 < 0.05"}</K>, reject <K>{"H_0"}</K>. The data give evidence that the average before/after
+          difference is not zero.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "t-trap",
+    question:
+      "A student uses a two-sample t-test on matched before/after data instead of a paired t-test. Why is that a mistake?",
+    solution: (
+      <>
+        <p>
+          A paired t-test works on the difference scores <K>{"d_i = \\text{after}_i - \\text{before}_i"}</K>, which removes
+          person-to-person variation.
+        </p>
+        <p style={{ marginBottom: 0 }}>
+          Treating matched observations as independent throws away the pairing structure and can inflate the standard
+          error, making a real effect harder to detect.
+        </p>
+      </>
+    ),
+  },
+];
+
+const abExercises = [
+  {
+    id: "ab-setup",
+    question:
+      "An A/B test compares conversion rate pA for version A with conversion rate pB for version B. State H₀ and H₁ for a two-sided test.",
+    solution: (
+      <>
+        <K d>{"H_0: p_A = p_B \\qquad H_1: p_A \\neq p_B"}</K>
+        <p style={{ marginBottom: 0 }}>
+          A two-sided A/B test asks whether the underlying conversion rates differ in either direction.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "ab-compute",
+    question:
+      "Version A gets 45 conversions out of 300 visitors and version B gets 72 conversions out of 300 visitors. Compute the pooled proportion, z-statistic, and decision at α = 0.05.",
+    solution: (
+      <>
+        <K d>{"\\hat{p}_A = 45/300 = 0.15, \\qquad \\hat{p}_B = 72/300 = 0.24"}</K>
+        <K d>{"\\hat{p}_{pool} = \\frac{45 + 72}{300 + 300} = \\frac{117}{600} = 0.195"}</K>
+        <K d>{"SE = \\sqrt{0.195(1-0.195)\\left(\\frac{1}{300} + \\frac{1}{300}\\right)} \\approx 0.0324"}</K>
+        <K d>{"z = \\frac{0.15 - 0.24}{0.0324} \\approx -2.78"}</K>
+        <p style={{ marginBottom: 0 }}>
+          Since <K>{"|z| \\approx 2.78 > 1.96"}</K>, reject <K>{"H_0"}</K> at the 5% level and conclude the conversion
+          rates differ.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "ab-interpret",
+    question:
+      "An A/B test reports p = 0.18. What should you conclude, and what should you avoid claiming?",
+    solution: (
+      <>
+        <p>
+          Because <K>{"p = 0.18 > 0.05"}</K>, fail to reject <K>{"H_0: p_A = p_B"}</K>.
+        </p>
+        <p style={{ marginBottom: 0 }}>
+          That does <strong>not</strong> prove the versions are identical. It only means the experiment did not produce
+          strong enough evidence of a difference at the chosen alpha level.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "ab-trap",
+    question:
+      "A team checks the A/B test every day and stops the first time p < 0.05. Why is that a problem?",
+    solution: (
+      <>
+        <p>
+          Repeated peeking breaks the fixed-test rule behind the usual <K>{"\\alpha = 0.05"}</K> threshold.
+        </p>
+        <p style={{ marginBottom: 0 }}>
+          The more often you look, the more likely you are to stop on a lucky fluctuation and overstate the evidence
+          against <K>{"H_0"}</K>.
+        </p>
+      </>
+    ),
+  },
+];
+
+const exerciseBlocks = [
+  { id: "se-exercises", l: "SE Exercises", title: "Exercises (4 questions)", exercises: seExercises },
+  { id: "df-exercises", l: "DF Exercises", title: "Exercises (4 questions)", exercises: dfExercises },
+  { id: "clt-exercises", l: "CLT Exercises", title: "Exercises (4 questions)", exercises: cltExercises },
+  { id: "z-exercises", l: "Z Exercises", title: "Exercises (4 questions)", exercises: zExercises },
+  { id: "t-exercises", l: "t Exercises", title: "Exercises (4 questions)", exercises: tExercises },
+  { id: "ab-exercises", l: "A/B Exercises", title: "Exercises (4 questions)", exercises: abExercises },
+];
+
+const exerciseBlockIds = new Set(exerciseBlocks.map((block) => block.id));
+const navSecs = exerciseBlocks.length
+  ? [...baseSecs, { id: "exercises", l: "Exercises", group: true }, ...exerciseBlocks.map(({ id, l }) => ({ id, l }))]
+  : baseSecs;
+
 /* ═══════════════════ APP ═══════════════════ */
 export default function App() {
   const [active, setA] = useState("se");
   const [navOpen, setNavOpen] = useState(false);
   const navRef = useRef(null);
-  const activeLabel = secs.find((s) => s.id === active)?.l || "Standard Error";
+  const activeLabel = navSecs.find((s) => s.id === active)?.l || "Standard Error";
 
   useEffect(() => {
     const obs = new IntersectionObserver(
@@ -1136,7 +1569,7 @@ export default function App() {
       { rootMargin: "-20% 0px -70% 0px" },
     );
 
-    secs.filter((s) => !s.group).forEach((s) => {
+    navSecs.filter((s) => !s.group).forEach((s) => {
       const el = document.getElementById(s.id);
       if (el) obs.observe(el);
     });
@@ -1158,6 +1591,11 @@ export default function App() {
   const go = (id) => {
     const el = document.getElementById(id);
     if (!el) return;
+
+    if (exerciseBlockIds.has(id)) {
+      const toggle = el.querySelector('[data-exercise-toggle="true"]');
+      if (toggle?.getAttribute("aria-expanded") === "false") toggle.click();
+    }
 
     const scrollToTarget = () => {
       const isMobile = window.matchMedia("(max-width: 900px)").matches;
@@ -1266,7 +1704,7 @@ export default function App() {
         </div>
 
         <div id="tutorial-nav-panel" className="tutorial-nav-panel">
-          {secs.map((s) =>
+          {navSecs.map((s) =>
             s.group ? (
               <div
                 key={s.id}
@@ -1417,6 +1855,11 @@ export default function App() {
           </CW>
 
           <Remember>SE = σ/√n. More data → smaller SE, but 4× data only halves SE.</Remember>
+          <ExerciseBlock
+            id="se-exercises"
+            title="Exercises (4 questions)"
+            exercises={seExercises}
+          />
         </section>
 
         <section id="df" className="tutorial-section" tabIndex={-1}>
@@ -1450,7 +1893,11 @@ export default function App() {
           </CW>
 
           <Remember>df = n−1. Low df → fat tails → need stronger evidence.</Remember>
-
+          <ExerciseBlock
+            id="df-exercises"
+            title="Exercises (4 questions)"
+            exercises={dfExercises}
+          />
         </section>
 
         <section id="clt" className="tutorial-section" tabIndex={-1}>
@@ -1516,6 +1963,11 @@ export default function App() {
           </Confusion>
 
           <Remember>Large n → sample mean is approximately Normal, regardless of population shape.</Remember>
+          <ExerciseBlock
+            id="clt-exercises"
+            title="Exercises (4 questions)"
+            exercises={cltExercises}
+          />
         </section>
 
         <section id="z-test" className="tutorial-section" tabIndex={-1}>
@@ -1770,6 +2222,11 @@ export default function App() {
           </CW>
 
           <Remember>z = (observed − expected) / SE. Compare p to α. Know your tail direction.</Remember>
+          <ExerciseBlock
+            id="z-exercises"
+            title="Exercises (4 questions)"
+            exercises={zExercises}
+          />
         </section>
 
         <section id="t-test" className="tutorial-section" tabIndex={-1}>
@@ -1950,6 +2407,11 @@ export default function App() {
           </CW>
 
           <Remember>Same as z-test but with s instead of σ. Fatter tails protect you with small samples.</Remember>
+          <ExerciseBlock
+            id="t-exercises"
+            title="Exercises (4 questions)"
+            exercises={tExercises}
+          />
         </section>
 
         <section id="ab-test" className="tutorial-section" tabIndex={-1}>
@@ -2064,6 +2526,11 @@ export default function App() {
           </CW>
 
           <Remember>Two-proportion z-test. Pool under H₀. Watch for peeking and winner's curse.</Remember>
+          <ExerciseBlock
+            id="ab-exercises"
+            title="Exercises (4 questions)"
+            exercises={abExercises}
+          />
         </section>
 
         <section id="wrong-test" className="tutorial-section" tabIndex={-1}>
