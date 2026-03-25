@@ -5,6 +5,29 @@ test.describe("Exercises sidebar navigation", () => {
     await page.goto("/");
   });
 
+  test("desktop nav rail is anchored on the right without covering main content", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.reload();
+
+    const nav = page.locator("nav");
+    const main = page.locator("main.tutorial-main");
+
+    await expect(nav).toBeVisible();
+    await expect(main).toBeVisible();
+
+    const [navBox, mainBox] = await Promise.all([nav.boundingBox(), main.boundingBox()]);
+    const viewport = page.viewportSize();
+
+    if (!navBox || !mainBox || !viewport) {
+      throw new Error("Expected nav, main content, and viewport geometry to be available");
+    }
+
+    expect(Math.abs(navBox.x + navBox.width - viewport.width)).toBeLessThanOrEqual(1);
+    expect(mainBox.x + mainBox.width).toBeLessThanOrEqual(navBox.x + 1);
+  });
+
   test("sidebar shows all implemented exercise links and clicking one scrolls to an auto-expanded block", async ({
     page,
   }) => {

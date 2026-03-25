@@ -1618,6 +1618,9 @@ export default function App() {
     scrollToTarget();
   };
 
+  const desktopNavWidth = 195;
+  const desktopNavWidthPx = `${desktopNavWidth}px`;
+
   return (
     <div
       style={{
@@ -1629,8 +1632,8 @@ export default function App() {
       }}
     >
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
-      .tutorial-nav{position:fixed;top:0;left:0;width:195px;height:100vh;background:${C.card};border-right:1px solid ${C.border};padding:20px 0;overflow-y:auto;z-index:999}
-      .tutorial-main{margin-left:195px;padding:36px 38px 80px;max-width:760px;font-family:var(--s);font-size:15.5px;line-height:1.75;color:${C.text}}
+      .tutorial-nav{position:fixed;top:0;right:0;width:${desktopNavWidthPx};height:100vh;background:${C.card};border-left:1px solid ${C.border};padding:20px 0;overflow-y:auto;z-index:999}
+      .tutorial-main{margin-right:${desktopNavWidthPx};padding:36px 38px 80px;max-width:760px;font-family:var(--s);font-size:15.5px;line-height:1.75;color:${C.text}}
       .tutorial-nav-title{padding:0 14px 16px;border-bottom:1px solid ${C.border};margin-bottom:10px;font-family:var(--h);font-size:15px;color:${C.accent}}
       .tutorial-nav-summary{display:none}
       .tutorial-nav-toggle{display:none}
@@ -1641,8 +1644,8 @@ export default function App() {
       .responsive-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
       .tutorial-disclosure-button:focus-visible,.tutorial-nav-link:focus-visible,.tutorial-nav-toggle:focus-visible{outline:2px solid ${C.accent};outline-offset:2px}
       @media (max-width: 900px){
-        .tutorial-nav{position:sticky;width:100%;height:auto;max-height:none;border-right:none;border-bottom:1px solid ${C.border};padding:0;box-shadow:0 10px 30px rgba(26,26,26,0.08)}
-        .tutorial-main{margin-left:0;padding:20px 16px 60px;max-width:none}
+        .tutorial-nav{position:sticky;right:auto;width:100%;height:auto;max-height:none;border-left:none;border-bottom:1px solid ${C.border};padding:0;box-shadow:0 10px 30px rgba(26,26,26,0.08)}
+        .tutorial-main{margin-right:0;padding:20px 16px 60px;max-width:none}
         .tutorial-nav-title{padding:14px 16px 10px;margin-bottom:0;border-bottom:none}
         .tutorial-nav-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 16px 14px}
         .tutorial-nav-toggle{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:10px 14px;border-radius:999px;border:1px solid ${C.border};background:${C.accentLt};color:${C.accent};font-family:var(--m);font-size:11px;font-weight:600;letter-spacing:0.04em;cursor:pointer}
